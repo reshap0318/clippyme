@@ -98,8 +98,8 @@ export const HOOK_STYLE_DEFAULT = {
 export const HOOK_OUTLINE = [['0', 'None'], ['4', 'Thin'], ['8', 'Thick']];
 
 export const LANGUAGES = [
-  ['multi', 'Multi-language'], ['en', 'English'], ['it', 'Italiano'], ['es', 'Español'],
-  ['fr', 'Français'], ['de', 'Deutsch'], ['pt', 'Português'], ['nl', 'Nederlands'],
+  ['multi', 'Multi-language'], ['en', 'English'], ['id', 'Bahasa Indonesia'], ['it', 'Italiano'],
+  ['es', 'Español'], ['fr', 'Français'], ['de', 'Deutsch'], ['pt', 'Português'], ['nl', 'Nederlands'],
   ['ja', '日本語'], ['ko', '한국어'], ['zh', '中文'], ['hi', 'हिन्दी'],
 ];
 

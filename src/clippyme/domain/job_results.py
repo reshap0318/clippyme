@@ -33,7 +33,7 @@ GEMINI_MODEL_RE = re.compile(r"^gemini-[A-Za-z0-9.\-]{1,64}$")
 
 ALLOWED_LANGUAGES = frozenset({
     "multi", "auto",
-    "en", "it", "es", "fr", "de", "pt", "nl", "hi", "ja", "ru",
+    "en", "it", "es", "fr", "de", "pt", "nl", "hi", "id", "ja", "ru",
     "pl", "tr", "sv", "da", "nb", "fi", "cs", "uk", "el", "ko", "zh",
     "en-US", "en-GB", "es-ES", "es-419", "pt-BR", "pt-PT", "fr-CA",
 })
