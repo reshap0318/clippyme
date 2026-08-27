@@ -16,14 +16,14 @@
 set -e
 
 if [ "$(id -u)" = "0" ] && [ "${1:-}" = "uvicorn" ]; then
-    for d in /app/data /app/output /app/uploads; do
+    for d in /app/data /app/output /app/uploads /app/.cache /app/.config; do
         mkdir -p "$d"
     done
     # data/ is small (config, cookies, cache, fonts, bin) — safe to recurse.
     chown -R appuser:appuser /app/data 2>/dev/null || true
     # output/ and uploads/ can be large; their contents are already
     # appuser-created, so only the top-level dir needs fixing.
-    chown appuser:appuser /app/output /app/uploads 2>/dev/null || true
+    chown appuser:appuser /app/output /app/uploads /app/.cache /app/.config 2>/dev/null || true
     exec gosu appuser "$@"
 fi
 
