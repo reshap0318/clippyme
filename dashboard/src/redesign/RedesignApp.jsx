@@ -14,7 +14,7 @@ import { PublishModal } from './publish';
 import { HistoryView, SettingsView, ApiKeyModal } from './views';
 import { LiveMonitorView } from './live';
 import { EditClipModal } from './captions';
-import { optsToPreselections, restoreJob, listBackendJobIds, cancelJob, pauseJob, resumeJob, stopJob, reframeClip, composeClip } from './realApi';
+import { optsToPreselections, restoreJob, fetchBackendHistory, cancelJob, pauseJob, resumeJob, stopJob, reframeClip, composeClip } from './realApi';
 import { allPresets, getDefaultPresetOpts, getDefaultPresetId, saveUserPreset, deleteUserPreset, setDefaultPreset } from './presets';
 import { HOOK_STYLE_DEFAULT } from './data';
 import { clipStateToParams, buildBulkPlan } from '../lib/bulkApply';
@@ -122,7 +122,7 @@ export default function RedesignApp() {
   // reality so jobs wiped by a rebuild are flagged instead of dead-clicking.
   const [availableJobIds, setAvailableJobIds] = useState(null);
 
-  const { history, saveToHistory, deleteFromHistory, clearHistory } = useHistory();
+  const { history, saveToHistory, mergeHistory, deleteFromHistory, clearHistory } = useHistory();
   const { cookiesConfigured, setCookiesConfigured } = useBackendStatus();
   const { states: clipStates, updateClip: updateClipState } = useClipStates(jobId);
 
@@ -146,8 +146,13 @@ export default function RedesignApp() {
   // files were removed (rebuild/cleanup) shows as unavailable rather than
   // failing silently when clicked.
   useEffect(() => {
-    if (tab === 'history' && !viewingHistory) listBackendJobIds().then(setAvailableJobIds);
-  }, [tab, viewingHistory]);
+    if (tab === 'history' && !viewingHistory) {
+      fetchBackendHistory().then((entries) => {
+        setAvailableJobIds(entries ? new Set(entries.map((e) => e.jobId)) : null);
+        if (entries) mergeHistory(entries);
+      });
+    }
+  }, [tab, viewingHistory, mergeHistory]);
   useSessionPersistence({ status, jobId, results, processingMedia, activeTab: tab, preselections });
 
   const dismissToast = useCallback((id) => setToasts((items) => items.filter((item) => item.id !== id)), []);

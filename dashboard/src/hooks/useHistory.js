@@ -26,6 +26,22 @@ export function useHistory() {
     });
   }, []);
 
+  // Backfill entries the backend knows about but this browser's localStorage
+  // doesn't (job completed in a session that never called saveToHistory).
+  // Existing local entries win on conflict — the backend's view is a fallback,
+  // not a source of truth for status/metadata.
+  const mergeHistory = useCallback((backendEntries) => {
+    if (!backendEntries?.length) return;
+    setHistoryState((previous) => {
+      const known = new Set(previous.map((entry) => entry.jobId));
+      const missing = backendEntries.filter((entry) => !known.has(entry.jobId));
+      if (!missing.length) return previous;
+      const updated = [...previous, ...missing].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, HISTORY_MAX_ITEMS);
+      writeStoredJson(HISTORY_KEY, updated);
+      return updated;
+    });
+  }, []);
+
   const purgeJobStorage = useCallback((jobId) => {
     removeStoredValue(`clippyme_clip_states_${jobId}`);
     removeStoredValue(`clippyme_preselections_job_${jobId}`);
@@ -48,5 +64,5 @@ export function useHistory() {
     removeStoredValue(HISTORY_KEY);
   }, [purgeJobStorage]);
 
-  return { history, setHistory: replaceHistory, saveToHistory, deleteFromHistory, clearHistory };
+  return { history, setHistory: replaceHistory, saveToHistory, mergeHistory, deleteFromHistory, clearHistory };
 }

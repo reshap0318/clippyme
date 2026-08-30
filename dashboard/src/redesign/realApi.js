@@ -185,18 +185,28 @@ export async function restoreJob(jobId) {
   return res.json(); // { result: { clips, cost_analysis } }
 }
 
-// Jobs that actually exist on disk right now. The History list is driven by
-// localStorage (survives rebuilds), but the clip files live in output/ — a
-// docker rebuild/cleanup can wipe them while the localStorage entry lingers.
-// Cross-checking against this set lets the UI flag entries that can no longer
-// be opened instead of failing silently on click. Returns a Set of jobIds;
-// empty Set on any error (treated as "unknown" → don't disable anything).
-export async function listBackendJobIds() {
+// The History list is driven by localStorage (survives rebuilds), but the
+// backend also knows every completed job still on disk (data/*_metadata.json
+// scan) — a job whose "onCompleted" never fired in a browser (tab closed
+// early, restart mid-job on another machine, etc.) never gets a localStorage
+// entry otherwise. Fetch the backend's view once per History-tab open so
+// RedesignApp can both flag entries wiped from disk and backfill entries
+// missing from localStorage. Returns null on any error ("unknown" → don't
+// disable/backfill anything).
+export async function fetchBackendHistory() {
   try {
     const res = await apiFetch(getApiUrl('/api/history'));
     if (!res.ok) return null;
     const data = await res.json();
-    return new Set((data.jobs || []).map((j) => j.jobId).filter(Boolean));
+    return (data.jobs || []).filter((j) => j.jobId).map((j) => ({
+      jobId: j.jobId,
+      status: 'complete',
+      timestamp: j.timestamp,
+      source: j.title || j.source || j.jobId,
+      sourceType: 'url',
+      clipCount: j.clipCount,
+      cost: j.cost,
+    }));
   } catch { return null; }
 }
 
