@@ -118,7 +118,7 @@ test('history row shows the video title and a published-count badge when clips w
     { jobId: 'job-1', status: 'complete', clipCount: 2, source: 'my video', title: 'my video', publishedCount: 1, timestamp: Date.now() },
     { jobId: 'job-2', status: 'complete', clipCount: 3, source: 'other video', title: 'other video', publishedCount: 0, timestamp: Date.now() },
   ];
-  render(<HistoryView history={history} availableIds={null} onOpen={vi.fn()} onDelete={vi.fn()} onClear={vi.fn()} />);
+  render(<HistoryView history={history} onOpen={vi.fn()} onDelete={vi.fn()} onClear={vi.fn()} />);
 
   expect(screen.getByText('my video')).toBeInTheDocument();
   expect(screen.getByText('1 published')).toBeInTheDocument();

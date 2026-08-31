@@ -555,16 +555,69 @@ def compute_neighbor_bounds(raw_intervals, idx):
             max(preceding) if preceding else None)
 
 
+def extend_for_reaction_beat(
+    end: float,
+    silences: list[tuple[float, float]] | None,
+    *,
+    pad: float,
+    start: float,
+    max_duration: float = DEFAULT_MAX_CLIP_DURATION,
+    source_duration: float | None = None,
+    neighbor_start: float | None = None,
+    neighbor_overlap: float = 0.0,
+) -> tuple[float, str]:
+    """Push a clip's END forward by up to `pad` seconds so a punchline gets a
+    beat to land before the cut, instead of hard-stopping on the last word.
+
+    Runs AFTER sentence/silence snapping, on the already-good edge. Prefers
+    landing at the START of the nearest silence trough inside the
+    ``(end, end+pad]`` window (a real pause) over a blind flat add. Never
+    shortens the clip and never crosses a hard boundary: the source end or
+    `max_duration` measured from `start`. The next time-adjacent clip
+    (`neighbor_start`) is a hard boundary too UNLESS `neighbor_overlap` > 0,
+    which shifts that boundary outward by up to that many seconds — a bounded
+    allowance for the pad to share a few seconds of footage with the next
+    clip, never an unbounded one.
+
+    Returns ``(new_end, path)`` — ``path`` is ``"reaction_silence"``,
+    ``"reaction_flat"``, or ``"none"`` (pad is 0, or no room to extend).
+    """
+    if pad <= 0:
+        return end, "none"
+    hard_ceiling = start + max_duration
+    if source_duration is not None:
+        hard_ceiling = min(hard_ceiling, float(source_duration))
+    if neighbor_start is not None:
+        hard_ceiling = min(hard_ceiling, neighbor_start + max(0.0, neighbor_overlap))
+    budget_end = min(end + pad, hard_ceiling)
+    if budget_end <= end:
+        return end, "none"
+
+    best = None
+    for s, _e in (silences or []):
+        if end < s <= budget_end and (best is None or s < best):
+            best = s
+    if best is not None:
+        return best, "reaction_silence"
+    return budget_end, "reaction_flat"
+
+
 def snap_clips_to_transcript(shorts, words, *, source_duration=None,
-                             silences=None, default_reframe_mode="auto"):
-    """Three-stage edge repair for every clip, in place.
+                             silences=None, default_reframe_mode="auto",
+                             max_duration=DEFAULT_MAX_CLIP_DURATION,
+                             reaction_pad=0.0, reaction_overlap=0.0):
+    """Edge repair for every clip, in place.
 
     Per clip: word-snap (never open/close mid-word) → sentence-snap (never
-    mid-sentence; forward extension clamped by duration cap and time-adjacent
-    neighbours) → optional waveform-silence refine when ``silences`` is
-    non-empty. Also ``setdefault``s ``reframe_mode`` on every entry (the
-    dashboard reads it per clip). Entries without word timing or start/end
-    keys keep their edges untouched.
+    mid-sentence; forward extension clamped by `max_duration` and
+    time-adjacent neighbours) → optional waveform-silence refine when
+    ``silences`` is non-empty → optional reaction-beat pad (`reaction_pad` >
+    0) that gives the END a few extra seconds to breathe, preferring a real
+    silence trough over a blind add; `reaction_overlap` bounds how far that
+    pad may share footage with the next clip (0 = never, the default). Also
+    ``setdefault``s ``reframe_mode`` on
+    every entry (the dashboard reads it per clip). Entries without word
+    timing or start/end keys keep their edges untouched.
 
     Returns the list of :class:`SnapEvent` for clips whose edges moved.
     """
@@ -590,6 +643,7 @@ def snap_clips_to_transcript(shorts, words, *, source_duration=None,
             word_start=word_start, word_end=word_end,
             source_duration=source_duration,
             neighbor_start=neighbor_start, neighbor_end=neighbor_end,
+            max_duration=max_duration,
         )
         if silences:
             new_start, new_end, silence_path = refine_edges_to_silence(
@@ -599,6 +653,15 @@ def snap_clips_to_transcript(shorts, words, *, source_duration=None,
             )
             if silence_path != "none":
                 path = f"{path}+{silence_path}"
+        if reaction_pad > 0:
+            padded_end, pad_path = extend_for_reaction_beat(
+                new_end, silences, pad=reaction_pad, start=new_start,
+                max_duration=max_duration, source_duration=source_duration,
+                neighbor_start=neighbor_start, neighbor_overlap=reaction_overlap,
+            )
+            if padded_end != new_end:
+                new_end = padded_end
+                path = f"{path}+{pad_path}"
         if (new_start, new_end) != (raw_start, raw_end):
             clip["start"] = new_start
             clip["end"] = new_end

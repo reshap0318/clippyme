@@ -6,13 +6,13 @@
 // realApi functions, tests pass fakes.
 
 export async function runApplyEdit({ jobId, idx, apiIdx = idx, params, api, updateClipState, pushToast, now = Date.now }) {
-  const { reframeMode, baseMode, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams, dropRanges, forceReframe } = params;
+  const { reframeMode, baseMode, letterboxZoom, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams, dropRanges, forceReframe } = params;
   const reframeChanged = forceReframe || reframeMode !== baseMode;
   const anyCompose = !!(toggles.smartcut || toggles.subtitles || toggles.hook || toggles.logo || toggles.grade || toggles.banner);
 
   // Persist the user's choices + flip the card into its processing state up
   // front (so the badge/preview already reflect the new reframe mode).
-  updateClipState(idx, { reframeMode, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams, dropRanges,
+  updateClipState(idx, { reframeMode, letterboxZoom, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams, dropRanges,
     processing: reframeChanged || anyCompose });
 
   if (!reframeChanged && !anyCompose) {
@@ -23,7 +23,7 @@ export async function runApplyEdit({ jobId, idx, apiIdx = idx, params, api, upda
   let reframeApplied = false;
   try {
     if (reframeChanged) {
-      await api.reframeClip(jobId, apiIdx, reframeMode);
+      await api.reframeClip(jobId, apiIdx, reframeMode, letterboxZoom);
       reframeApplied = true;
       // Reframe overwrites the clip on disk → bust the cache + drop any stale
       // composed preview so the card re-fetches the freshly framed clip.

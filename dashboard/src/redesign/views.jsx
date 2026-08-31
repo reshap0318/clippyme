@@ -22,7 +22,7 @@ const FALLBACK_MODELS = [
   { name: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro — max quality' },
 ];
 
-export function HistoryView({ history, availableIds, onOpen, onDelete, onClear }) {
+export function HistoryView({ history, onOpen, onDelete, onClear }) {
   if (!history.length) {
     return (
       <div className="container narrow fade-in">
@@ -46,38 +46,33 @@ export function HistoryView({ history, availableIds, onOpen, onDelete, onClear }
       </div>
       <Panel pad={false} className="hlist">
         {history.map((h) => {
-          // `availableIds` is the set of jobs whose files still exist on disk
-          // (null = backend not reached yet → assume available, don't disable).
-          // An entry whose files were wiped by a rebuild is shown muted + flagged
-          // "files removed" instead of looking clickable and dead-ending.
-          const onDisk = !availableIds || availableIds.has(h.jobId);
-          const ok = h.status === 'complete' && onDisk;
-          const removed = !!availableIds && !availableIds.has(h.jobId);
+          // Every entry comes straight from the backend's disk scan
+          // (/api/history), which only ever lists a job whose output dir is
+          // still there — nothing here can be "unavailable" by construction.
+          const ok = h.status === 'complete';
           return (
             <div className="hrow" key={h.jobId}
               role={ok ? 'button' : undefined} tabIndex={ok ? 0 : undefined}
               aria-label={ok ? `Open job ${h.title || h.source || h.jobId}` : undefined}
               onClick={() => ok && onOpen(h)}
               onKeyDown={(e) => { if (ok && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpen(h); } }}
-              style={{ cursor: ok ? 'pointer' : 'default', opacity: removed ? 0.55 : 1 }}>
-              <div className="hthumb" style={{ background: removed ? 'var(--bg-4)' : 'var(--grad-viral)' }}>{h.clipCount ?? 0}</div>
+              style={{ cursor: ok ? 'pointer' : 'default' }}>
+              <div className="hthumb" style={{ background: 'var(--grad-viral)' }}>{h.clipCount ?? 0}</div>
               <div style={{ minWidth: 0 }}>
                 <div className="ht" title={h.title || h.source || h.jobId}
                   style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.title || h.source || h.jobId}</div>
                 <div className="hm">
                   <Icon n={h.sourceType === 'url' ? 'globe' : 'file-video'} style={{ width: 11, height: 11, verticalAlign: '-1px', marginRight: 5 }} />
-                  {removed ? 'Files removed (rebuild/cleanup) · delete to dismiss'
-                    : `${h.clipCount || 0} clips${h.cost != null ? ` · $${Number(h.cost).toFixed(2)}` : ''} · ${relTime(h.timestamp)}`}
+                  {`${h.clipCount || 0} clips${h.cost != null ? ` · $${Number(h.cost).toFixed(2)}` : ''} · ${relTime(h.timestamp)}`}
                 </div>
               </div>
               <div className="hr">
-                {!removed && h.publishedCount > 0 && (
+                {h.publishedCount > 0 && (
                   <Badge tone="teal" icon="send">{h.publishedCount} published</Badge>
                 )}
-                {removed ? <Badge tone="out" icon="triangle-alert">unavailable</Badge>
-                  : h.status === 'complete' ? <Badge tone="teal" icon="check">complete</Badge>
-                    : h.status === 'error' ? <Badge tone="danger" icon="triangle-alert">error</Badge>
-                      : <Badge tone="amber" icon="clock">{h.status || 'pending'}</Badge>}
+                {h.status === 'complete' ? <Badge tone="teal" icon="check">complete</Badge>
+                  : h.status === 'error' ? <Badge tone="danger" icon="triangle-alert">error</Badge>
+                    : <Badge tone="amber" icon="clock">{h.status || 'pending'}</Badge>}
                 <button type="button" className="mini" title="Delete" aria-label="Delete job" onClick={(e) => { e.stopPropagation(); onDelete(h.jobId); }}><Icon n="trash-2" /></button>
                 {ok && <Icon n="chevron-right" style={{ width: 18, height: 18, color: 'var(--fg-4)' }} />}
               </div>

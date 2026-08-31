@@ -356,3 +356,117 @@ def test_snap_clips_neighbor_clamp_prevents_overlap():
     ]
     snap_clips_to_transcript(shorts, _WORDS, source_duration=60.0)
     assert shorts[1]["end"] <= 5.1
+
+
+# --- extend_for_reaction_beat (punchline breathing room) --------------------
+
+from clippyme.pipeline.cut_ops import extend_for_reaction_beat  # noqa: E402
+
+
+def test_reaction_pad_zero_is_noop():
+    assert extend_for_reaction_beat(10.0, None, pad=0.0, start=5.0) == (10.0, "none")
+
+
+def test_reaction_pad_flat_add_when_no_silence_in_window():
+    new_end, path = extend_for_reaction_beat(10.0, None, pad=2.0, start=5.0, max_duration=60.0)
+    assert (new_end, path) == (12.0, "reaction_flat")
+
+
+def test_reaction_pad_prefers_silence_trough_in_window():
+    # A silence starting at 11.0 lies inside (10.0, 12.0] — land there instead
+    # of the blind 12.0 flat add.
+    new_end, path = extend_for_reaction_beat(
+        10.0, [(11.0, 11.5)], pad=2.0, start=5.0, max_duration=60.0)
+    assert (new_end, path) == (11.0, "reaction_silence")
+
+
+def test_reaction_pad_clamped_by_neighbor_start():
+    new_end, path = extend_for_reaction_beat(
+        10.0, None, pad=5.0, start=5.0, max_duration=60.0, neighbor_start=11.0)
+    assert (new_end, path) == (11.0, "reaction_flat")
+
+
+def test_reaction_pad_clamped_by_max_duration_from_start():
+    # start=5.0, max_duration=8.0 → hard ceiling is 13.0, tighter than end+pad=20.
+    new_end, path = extend_for_reaction_beat(
+        10.0, None, pad=10.0, start=5.0, max_duration=8.0)
+    assert (new_end, path) == (13.0, "reaction_flat")
+
+
+def test_reaction_pad_clamped_by_source_duration():
+    new_end, path = extend_for_reaction_beat(
+        10.0, None, pad=5.0, start=5.0, max_duration=60.0, source_duration=11.0)
+    assert (new_end, path) == (11.0, "reaction_flat")
+
+
+def test_reaction_pad_no_room_is_noop():
+    # Neighbour already sits at the current end — no budget to extend into.
+    new_end, path = extend_for_reaction_beat(
+        10.0, None, pad=2.0, start=5.0, max_duration=60.0, neighbor_start=10.0)
+    assert (new_end, path) == (10.0, "none")
+
+
+def test_reaction_pad_neighbor_overlap_shifts_ceiling_outward():
+    # neighbor_start=11.0 would normally cap this at 11.0; a 1.5s overlap
+    # allowance shifts that boundary to 12.5, and pad=5 wants to go further
+    # still — so the ceiling (12.5) wins, not the plain pad or plain neighbor.
+    new_end, path = extend_for_reaction_beat(
+        10.0, None, pad=5.0, start=5.0, max_duration=60.0,
+        neighbor_start=11.0, neighbor_overlap=1.5)
+    assert (new_end, path) == (12.5, "reaction_flat")
+
+
+def test_reaction_pad_neighbor_overlap_zero_is_same_as_before():
+    new_end, path = extend_for_reaction_beat(
+        10.0, None, pad=5.0, start=5.0, max_duration=60.0,
+        neighbor_start=11.0, neighbor_overlap=0.0)
+    assert (new_end, path) == (11.0, "reaction_flat")
+
+
+def test_reaction_pad_neighbor_overlap_still_bounded_by_max_duration():
+    # A huge overlap allowance doesn't defeat the max_duration hard clamp.
+    new_end, path = extend_for_reaction_beat(
+        10.0, None, pad=20.0, start=5.0, max_duration=8.0,
+        neighbor_start=11.0, neighbor_overlap=100.0)
+    assert (new_end, path) == (13.0, "reaction_flat")
+
+
+def test_snap_clips_reaction_overlap_defaults_to_zero():
+    # reaction_pad alone (no reaction_overlap arg) must clamp at the plain
+    # neighbor_start exactly like before this knob existed.
+    shorts = [
+        {"start": 5.1, "end": 5.7},
+        {"start": 0.1, "end": 0.8},
+    ]
+    snap_clips_to_transcript(shorts, _WORDS, source_duration=60.0, reaction_pad=10.0)
+    assert shorts[1]["end"] <= 5.1
+
+
+def test_snap_clips_reaction_pad_extends_end_and_composes_path():
+    shorts = [{"start": 0.1, "end": 0.8}]
+    events = snap_clips_to_transcript(
+        shorts, _WORDS, source_duration=60.0, reaction_pad=2.0)
+    assert len(events) == 1
+    assert "reaction" in events[0].path
+    # Sentence-snap alone lands end at word["world."]'s end (0.9 + post_pad);
+    # the reaction pad must push it further, still short of the next sentence.
+    assert shorts[0]["end"] > 0.98
+    assert shorts[0]["end"] < 5.0
+
+
+def test_snap_clips_reaction_pad_disabled_by_default():
+    shorts = [{"start": 0.1, "end": 0.8}]
+    snap_clips_to_transcript(shorts, _WORDS, source_duration=60.0)
+    assert shorts[0]["end"] < 1.0  # no reaction pad applied
+
+
+def test_snap_clips_max_duration_override_widens_sentence_snap_ceiling():
+    # A clip whose sentence-snapped span would exceed the default 60s cap but
+    # fits comfortably under a raised 120s cap.
+    words = [
+        {"start": 0.0, "end": 0.4, "word": "Open."},
+        {"start": 70.0, "end": 70.5, "word": "Close."},
+    ]
+    shorts = [{"start": 0.2, "end": 70.2}]
+    snap_clips_to_transcript(shorts, words, source_duration=200.0, max_duration=120.0)
+    assert shorts[0]["end"] > 70.0

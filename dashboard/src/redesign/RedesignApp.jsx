@@ -1,6 +1,6 @@
 // ClippyMe redesign — wired to the real backend via the production hooks.
 // Visual layer is the Claude Design handoff; data layer reuses the same
-// useJobSubmission / useJobPolling / useHistory / useClipStates the production
+// useJobSubmission / useJobPolling / useClipStates the production
 // app uses, so the pipeline behaves identically.
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import './tokens.css';
@@ -22,8 +22,8 @@ import { runApplyEdit } from '../lib/applyEdit';
 
 import { useJobSubmission } from '../hooks/useJobSubmission';
 import { useJobPolling } from '../hooks/useJobPolling';
-import { useHistory } from '../hooks/useHistory';
 import { useClipStates } from '../hooks/useClipStates';
+import { removeStoredValue } from '../lib/storage';
 import { recordTasteEvent } from '../lib/taste';
 import { useBackendStatus } from '../hooks/useBackendStatus';
 
@@ -115,12 +115,21 @@ export default function RedesignApp() {
   // Multi-select bulk editor: { targets: [{ i, c }] }.
   const [bulkEdit, setBulkEdit] = useState(null);
   const [viewingHistory, setViewingHistory] = useState(false);
-  // jobIds that still exist on disk (null = not yet known / backend offline →
-  // don't disable anything). Reconciles the localStorage history list against
-  // reality so jobs wiped by a rebuild are flagged instead of dead-clicking.
-  const [availableJobIds, setAvailableJobIds] = useState(null);
+  // Backend is the single source of truth for History — no localStorage
+  // mirror to go stale. /api/history already excludes active jobs and only
+  // ever lists jobs whose files are still on disk, so there's no "unavailable"
+  // state to reconcile here.
+  const [history, setHistory] = useState([]);
+  const refreshHistory = useCallback(() => {
+    fetchBackendHistory().then((entries) => { if (entries) setHistory(entries); });
+  }, []);
+  // Per-job UI caches (clip edit state, create-time preselections) outlive the
+  // backend job dir otherwise — drop them once the job itself is gone.
+  const purgeJobStorage = (jid) => {
+    removeStoredValue(`clippyme_clip_states_${jid}`);
+    removeStoredValue(`clippyme_preselections_job_${jid}`);
+  };
 
-  const { history, saveToHistory, mergeHistory, deleteFromHistory, clearHistory } = useHistory();
   const { cookiesConfigured, setCookiesConfigured } = useBackendStatus();
   const { states: clipStates, updateClip: updateClipState } = useClipStates(jobId);
 
@@ -151,17 +160,11 @@ export default function RedesignApp() {
       setStatus('processing');
     });
   }, []);
-  // Refresh the on-disk job set whenever the History tab opens, so a job whose
-  // files were removed (rebuild/cleanup) shows as unavailable rather than
-  // failing silently when clicked.
+  // Refresh from the backend every time the History tab opens, so it always
+  // reflects what's actually on disk (clip counts, cost, published state).
   useEffect(() => {
-    if (tab === 'history' && !viewingHistory) {
-      fetchBackendHistory().then((entries) => {
-        setAvailableJobIds(entries ? new Set(entries.map((e) => e.jobId)) : null);
-        if (entries) mergeHistory(entries);
-      });
-    }
-  }, [tab, viewingHistory, mergeHistory]);
+    if (tab === 'history' && !viewingHistory) refreshHistory();
+  }, [tab, viewingHistory, refreshHistory]);
 
   const dismissToast = useCallback((id) => setToasts((items) => items.filter((item) => item.id !== id)), []);
 
@@ -225,15 +228,8 @@ export default function RedesignApp() {
       setConfetti(true);
       setTimeout(() => setConfetti(false), 3000);
       pushToast('success', `${data.result?.clips?.length || 0} clips ready`);
-      saveToHistory({
-        jobId,
-        status: 'complete',
-        timestamp: Date.now(),
-        source: data.result?.video_title || (processingMedia?.type === 'url' ? processingMedia.payload : processingMedia?.payload?.name || 'Local file'),
-        sourceType: processingMedia?.type || 'file',
-        clipCount: data.result?.clips?.length || 0,
-        cost: data.result?.cost_analysis?.total_cost || null,
-      });
+      // No local save — the job's output dir is on disk now, so the next
+      // History tab open picks it up straight from the backend.
     },
     onStopped: (data) => {
       // Graceful stop kept the finished clips — route to the editable results
@@ -241,15 +237,6 @@ export default function RedesignApp() {
       setStatus('complete');
       setPaused(false);
       pushToast('info', `Stopped — kept ${data.result?.clips?.length || 0} clip(s)`);
-      saveToHistory({
-        jobId,
-        status: 'stopped',
-        timestamp: Date.now(),
-        source: data.result?.video_title || (processingMedia?.type === 'url' ? processingMedia.payload : processingMedia?.payload?.name || 'Local file'),
-        sourceType: processingMedia?.type || 'file',
-        clipCount: data.result?.clips?.length || 0,
-        cost: data.result?.cost_analysis?.total_cost || null,
-      });
     },
     onCancelled: () => { setStatus('idle'); setJobId(null); setResults(null); setLogs([]); setCurrentStep(null); setPaused(false); },
     onFailed: (errorMsg) => {
@@ -343,12 +330,12 @@ export default function RedesignApp() {
       } catch { setPreselectionsRaw(null); }
       setViewingHistory(true);
     } catch (err) {
-      // The clip files are gone from disk (typically a docker rebuild/cleanup
-      // wiped output/ while the localStorage entry lingered). Drop the dead
-      // entry so the phantom row stops teasing a click that can never open.
+      // Backend-listed but gone by the time it was clicked (deleted from
+      // another tab/device between the list fetch and this click) — drop it
+      // from the in-memory list so the phantom row stops teasing a dead click.
       if (err?.status === 404 || err?.status === 400) {
-        deleteFromHistory(h.jobId);
-        setAvailableJobIds((prev) => { if (!prev) return prev; const n = new Set(prev); n.delete(h.jobId); return n; });
+        setHistory((prev) => prev.filter((e) => e.jobId !== h.jobId));
+        purgeJobStorage(h.jobId);
         pushToast('error', 'Clip files were removed (rebuild/cleanup) — entry cleared');
       } else {
         pushToast('error', 'Could not restore this job');
@@ -358,15 +345,16 @@ export default function RedesignApp() {
 
   // A 404 means the backend already has no files for this job (previously
   // deleted, or wiped by a rebuild/retention sweep) — that's a successful
-  // outcome for a delete, not a failure, so it still drops the local entry.
+  // outcome for a delete, not a failure, so it still drops the entry.
   const deleteHistoryEntry = async (jobId) => {
+    const drop = () => { setHistory((prev) => prev.filter((e) => e.jobId !== jobId)); purgeJobStorage(jobId); };
     try {
       await deleteHistoryJob(jobId);
-      deleteFromHistory(jobId);
+      drop();
       pushToast('info', 'Job deleted');
     } catch (err) {
       if (err?.status === 404) {
-        deleteFromHistory(jobId);
+        drop();
         pushToast('info', 'Job deleted');
       } else if (err?.status === 409) {
         pushToast('error', 'Job is still active — stop or cancel it first');
@@ -380,7 +368,8 @@ export default function RedesignApp() {
     const ids = history.map((h) => h.jobId);
     const outcomes = await Promise.allSettled(ids.map((id) => deleteHistoryJob(id)));
     const stillActive = outcomes.filter((o) => o.status === 'rejected' && o.reason?.status === 409).length;
-    clearHistory();
+    ids.forEach(purgeJobStorage);
+    setHistory((prev) => prev.filter((e) => outcomes[ids.indexOf(e.jobId)]?.status === 'rejected'));
     if (stillActive > 0) {
       pushToast('warn', `History cleared — ${stillActive} job(s) still active on the backend, not deleted`);
     } else {
@@ -428,6 +417,7 @@ export default function RedesignApp() {
   const applyBulkEdit = (params, targets) => {
     const srcParams = {
       reframeMode: params.reframeMode,
+      letterboxZoom: params.letterboxZoom,
       toggles: params.toggles,
       subtitleParams: params.subtitleParams,
       hookParams: params.hookParams,
@@ -467,7 +457,7 @@ export default function RedesignApp() {
       {tab === 'live' && <LiveMonitorView pushToast={pushToast} />}
 
       {tab === 'history' && !viewingHistory && (
-        <HistoryView history={history} availableIds={availableJobIds}
+        <HistoryView history={history}
           onOpen={openHistoryJob}
           onDelete={deleteHistoryEntry}
           onClear={clearAllHistory} />

@@ -47,7 +47,7 @@ test('no change at all → no API calls, success toast, no processing flag', asy
 test('forceReframe: same mode still calls reframeClip (Retry button)', async () => {
   const { calls, args } = makeCtx();
   await runApplyEdit({ ...args, params: baseParams({ forceReframe: true }) });
-  expect(args.api.reframeClip).toHaveBeenCalledWith(JOB, 2, 'auto');
+  expect(args.api.reframeClip).toHaveBeenCalledWith(JOB, 2, 'auto', undefined);
   const bust = calls.states.find((p) => p.reframeBust);
   expect(bust).toMatchObject({ reframeBust: 1234, previewUrl: undefined });
 });
@@ -55,7 +55,7 @@ test('forceReframe: same mode still calls reframeClip (Retry button)', async () 
 test('reframe-only: calls reframeClip, busts cache, never composes', async () => {
   const { calls, args } = makeCtx();
   await runApplyEdit({ ...args, params: baseParams({ reframeMode: 'subject' }) });
-  expect(args.api.reframeClip).toHaveBeenCalledWith(JOB, 2, 'subject');
+  expect(args.api.reframeClip).toHaveBeenCalledWith(JOB, 2, 'subject', undefined);
   expect(args.api.composeClip).not.toHaveBeenCalled();
   const bust = calls.states.find((p) => p.reframeBust);
   expect(bust).toMatchObject({ reframeBust: 1234, previewUrl: undefined });
@@ -135,7 +135,7 @@ test('apiIdx resolves the backend call independently of the local idx (I-1 gap)'
       toggles: { smartcut: false, subtitles: true, hook: false, logo: false, grade: false },
     }),
   });
-  expect(args.api.reframeClip).toHaveBeenCalledWith(JOB, 5, 'subject');
+  expect(args.api.reframeClip).toHaveBeenCalledWith(JOB, 5, 'subject', undefined);
   expect(args.api.composeClip.mock.calls[0][1]).toBe(5);
   // Local state/toast messaging still keys off the array position (idx=2).
   expect(calls.toasts.at(-1)).toEqual(['success', 'Clip 3 updated']);

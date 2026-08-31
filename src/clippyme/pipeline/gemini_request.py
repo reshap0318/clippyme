@@ -21,7 +21,7 @@ MODEL_PRICING = {
 }
 
 GEMINI_PROMPT_TEMPLATE = """
-You are a senior short-form video editor specialized in TikTok, IG Reels and YouTube Shorts virality. Read the ENTIRE transcript + word-level timestamps and select the 3–15 MOST VIRAL 15–60s moments.
+You are a senior short-form video editor specialized in TikTok, IG Reels and YouTube Shorts virality. Read the ENTIRE transcript + word-level timestamps and select the 3–15 MOST VIRAL 15–{max_duration}s moments.
 
 ## IS THIS MOMENT EVEN WORTH CUTTING? (gate — apply BEFORE scoring)
 A clip must hit at least ONE of these HARD. A moment that is merely pleasant,
@@ -79,7 +79,7 @@ Absence of these markers means the provider didn't tag audio events; score
 normally on the words alone.
 
 ## HARD CONSTRAINTS (violating = clip REJECTED)
-- 15s ≤ duration ≤ 60s
+- 15s ≤ duration ≤ {max_duration}s
 - start on a complete sentence boundary; end on a natural beat
 - no cold-open ambiguity ("...and then she said" with no setup)
 - 0 ≤ start < end ≤ VIDEO_DURATION_SECONDS
@@ -322,7 +322,8 @@ def encode_words_toon(words):
     return "\n".join(lines)
 
 
-def build_viral_prompt(transcript_result, video_duration, instructions=None, creator=None):
+def build_viral_prompt(transcript_result, video_duration, instructions=None, creator=None,
+                       max_duration=60):
     """Return ``(prompt, words)`` for the primary Gemini call.
 
     ``words`` is also what ``gemini_parser.backfill_hook_text`` needs later,
@@ -332,6 +333,12 @@ def build_viral_prompt(transcript_result, video_duration, instructions=None, cre
     titles name the subject of the clip. It is NOT evidence of who is speaking
     — the speaker-attribution rule in the template still forbids putting a
     quote in a named mouth.
+
+    ``max_duration`` is the upper end of the HARD CONSTRAINT duration range
+    (default 60s — CLIPPYME_MAX_CLIP_DURATION overrides it). Must stay in sync
+    with ``cut_ops.DEFAULT_MAX_CLIP_DURATION`` / the value passed to
+    ``snap_clips_to_transcript`` — otherwise the snap stage's extension
+    ceiling disagrees with what Gemini was told it could pick.
     """
     words = extract_prompt_words(transcript_result)
 
@@ -363,6 +370,7 @@ def build_viral_prompt(transcript_result, video_duration, instructions=None, cre
 
     prompt = GEMINI_PROMPT_TEMPLATE.format(
         video_duration=video_duration,
+        max_duration=int(max_duration),
         transcript_text=json.dumps(transcript_result.get('text', '')),
         words_toon=encode_words_toon(words),
         user_instructions_block=user_instructions_block,

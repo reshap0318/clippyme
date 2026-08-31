@@ -439,6 +439,9 @@ def _load_or_analyze(
             source_duration=duration or None,
             silences=silences,
             default_reframe_mode=args.reframe_mode,
+            max_duration=legacy._max_clip_duration(),
+            reaction_pad=legacy._reaction_pad_seconds(),
+            reaction_overlap=legacy._reaction_overlap_seconds(),
         ):
             print(
                 f"🎯 snap[{event.path}]: [{event.old_start:.2f},{event.old_end:.2f}] "

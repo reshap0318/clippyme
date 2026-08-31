@@ -26,6 +26,7 @@ from clippyme.pipeline.reframe_ops import (
     normalize_letterbox_zoom,
     salient_crop_center,
 )
+from clippyme.pipeline.cut_ops import DEFAULT_MAX_CLIP_DURATION
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='google.protobuf')
@@ -403,7 +404,44 @@ def transcribe_video(video_path):
                 except OSError:
                     pass
 
-def get_viral_clips(transcript_result, video_duration, instructions=None):
+def _max_clip_duration() -> float:
+    """CLIPPYME_MAX_CLIP_DURATION overrides the 60s default. Read by both
+    get_viral_clips (Gemini's picking budget) and the sentence-snap extension
+    ceiling in main() below, so the two always agree — raising just one would
+    leave Gemini capped at 60s while the snap stage has unused headroom, or
+    vice versa let the snap stage overshoot what Gemini was told it could pick.
+    """
+    try:
+        return float(os.getenv("CLIPPYME_MAX_CLIP_DURATION") or DEFAULT_MAX_CLIP_DURATION)
+    except ValueError:
+        return DEFAULT_MAX_CLIP_DURATION
+
+
+def _reaction_pad_seconds() -> float:
+    """CLIPPYME_CLIP_END_PAD_SECONDS — extra seconds tacked onto a clip's end
+    after snapping, so a punchline gets a beat to land instead of a hard stop
+    on the last word. 0 (default) = off. See cut_ops.extend_for_reaction_beat.
+    """
+    try:
+        return max(0.0, float(os.getenv("CLIPPYME_CLIP_END_PAD_SECONDS") or 0.0))
+    except ValueError:
+        return 0.0
+
+
+def _reaction_overlap_seconds() -> float:
+    """CLIPPYME_CLIP_END_OVERLAP_SECONDS — how many seconds the reaction pad
+    may share with the START of the next time-adjacent clip. 0 (default) =
+    the pad never crosses into the next clip's footage, same as before this
+    knob existed. Only relaxes that one boundary — max_duration and the
+    source's own end stay hard clamps regardless of this value.
+    """
+    try:
+        return max(0.0, float(os.getenv("CLIPPYME_CLIP_END_OVERLAP_SECONDS") or 0.0))
+    except ValueError:
+        return 0.0
+
+
+def get_viral_clips(transcript_result, video_duration, instructions=None, max_duration=None):
     print("🤖  Analyzing with Gemini...")
     get_viral_clips._last_gemini_exhausted = False
 
@@ -429,6 +467,7 @@ def get_viral_clips(transcript_result, video_duration, instructions=None):
     prompt, words = build_viral_prompt(
         transcript_result, video_duration, instructions,
         creator=os.getenv("CLIPPYME_CREATOR_NAME"),
+        max_duration=max_duration if max_duration is not None else _max_clip_duration(),
     )
 
     if not words:
@@ -665,6 +704,19 @@ if __name__ == '__main__':
         print(f"❌ Invalid --letterbox-zoom: {args.letterbox_zoom!r}")
         sys.exit(2)
 
+    # Computed once so Gemini's picking budget and the sentence-snap extension
+    # ceiling always agree (see _max_clip_duration docstring).
+    max_clip_duration = _max_clip_duration()
+    if max_clip_duration != DEFAULT_MAX_CLIP_DURATION:
+        print(f"⏱️  Max clip duration: {max_clip_duration:.0f}s (CLIPPYME_MAX_CLIP_DURATION override)")
+
+    reaction_pad = _reaction_pad_seconds()
+    if reaction_pad > 0:
+        print(f"🎬 Reaction pad: +{reaction_pad:.1f}s after each clip's end (CLIPPYME_CLIP_END_PAD_SECONDS)")
+    reaction_overlap = _reaction_overlap_seconds()
+    if reaction_overlap > 0:
+        print(f"   ↳ may share up to {reaction_overlap:.1f}s with the next clip (CLIPPYME_CLIP_END_OVERLAP_SECONDS)")
+
     # Per-job Gemini model override — set the env BEFORE get_viral_clips, which
     # reads GEMINI_MODEL at call time (main.py get_viral_clips). Lets the user
     # pick a different model per run without changing the global Settings value.
@@ -799,7 +851,8 @@ if __name__ == '__main__':
             duration = 0.0
 
         # 4. Gemini Analysis
-        clips_data = get_viral_clips(transcript, duration, instructions=args.instructions)
+        clips_data = get_viral_clips(transcript, duration, instructions=args.instructions,
+                                     max_duration=max_clip_duration)
 
         # Smarter no-AI fallback: when Gemini is unavailable (no key) or its
         # output is unusable, segment the transcript into topic-coherent clips
@@ -840,8 +893,9 @@ if __name__ == '__main__':
             # render so the dashboard can render the correct per-clip state
             # without guessing (the /api/reframe endpoint updates this
             # field in place when the user flips the mode later on).
-            # video-use Hard Rules 6+7: three-stage edge repair (word-snap →
-            # sentence-snap → waveform-silence refine), done BEFORE the
+            # video-use Hard Rules 6+7: multi-stage edge repair (word-snap →
+            # sentence-snap → waveform-silence refine → optional reaction-beat
+            # pad), done BEFORE the
             # metadata write so subtitles / Smart Cut (which key off
             # clip.start/end) stay aligned with the render. The whole
             # orchestration is pure and host-tested in cut_ops
@@ -868,6 +922,9 @@ if __name__ == '__main__':
                 source_duration=duration or None,
                 silences=_silences,
                 default_reframe_mode=args.reframe_mode,
+                max_duration=max_clip_duration,
+                reaction_pad=reaction_pad,
+                reaction_overlap=reaction_overlap,
             ):
                 print(f"   🎯 snap[{_ev.path}]: [{_ev.old_start:.2f},{_ev.old_end:.2f}] "
                       f"→ [{_ev.new_start:.2f},{_ev.new_end:.2f}]")

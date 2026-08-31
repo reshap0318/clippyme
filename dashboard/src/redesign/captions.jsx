@@ -53,6 +53,7 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
 
   const [tab, setTab] = useState('reframe');
   const [reframeMode, setReframeMode] = useState(baseMode);
+  const [letterboxZoom, setLetterboxZoom] = useState(Number(initial?.letterboxZoom) || 0);
   const [smartcut, setSmartcut] = useState(t0.smartcut ?? !!pre.smartcut);
   const [subsOn, setSubsOn] = useState(t0.subtitles ?? !!pre.subtitles);
   const [hookOn, setHookOn] = useState(t0.hook ?? !!pre.hook);
@@ -106,6 +107,9 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
   const [hookStyle, setHookStyle] = useState(
     () => pickHookStyle(initial?.hookParams || (preselections || {}).hook),
   );
+  const hp0 = initial?.hookParams || {};
+  const [hookPosition, setHookPosition] = useState(hp0.position || pre.hook?.position || 'top');
+  const [hookSize, setHookSize] = useState(hp0.size || pre.hook?.size || 'S');
 
   // Manual trim (flycut-style) — transcript load + dropped set + AI trim.
   // Resolve to the backend's ABSOLUTE `shorts` position, not the array
@@ -134,7 +138,9 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
   ].filter(Boolean);
 
   const gradeOn = gradePreset && gradePreset !== 'none';
-  const reframeChanged = reframeMode !== baseMode;
+  const baseZoom = Number(initial?.letterboxZoom) || 0;
+  const reframeChanged = reframeMode !== baseMode
+    || (reframeMode === 'disabled' && letterboxZoom !== baseZoom);
   // Manual trim must run the Smart Cut compose stage (drop_ranges only apply
   // inside _apply_smartcut backend-side), so dropping text implies smartcut.
   const effSmartcut = smartcut || hasDrops;
@@ -155,12 +161,13 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
             font_color: subs.font_color, outline_color: subs.outline_color }
         : { font: subs.font, font_color: subs.font_color, border_width: subs.border_width,
             bg_opacity: subs.bg ? 0.6 : 0, bg_color: '#000000' }) };
-    const hookParams = { ...seedHookParams(clip, preselections), ...(initial?.hookParams || {}), ...hookStyle, text: hookText };
+    const hookParams = { ...seedHookParams(clip, preselections), ...(initial?.hookParams || {}), ...hookStyle,
+      position: hookPosition, size: hookSize, text: hookText };
     const logoParams = { position: logo.position, size: logo.size };
     const gradeParams = { preset: gradePreset };
     const bannerParams = { enabled: bannerOn, platform: banner.platform, handle: banner.handle, y_pct: banner.y_pct };
     const toggles = { smartcut: effSmartcut, subtitles: subsOn, hook: hookOn, logo: logoOn, grade: gradeOn, banner: bannerOn };
-    onApply({ reframeMode, baseMode, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams,
+    onApply({ reframeMode, baseMode, letterboxZoom, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams,
       dropRanges: effSmartcut ? dropRanges : [], forceReframe });
   };
 
@@ -203,6 +210,7 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
 
             {tab === 'reframe' && (
               <ReframeTab mode={reframeMode} onChange={setReframeMode}
+                zoom={letterboxZoom} onZoomChange={setLetterboxZoom}
                 onRetry={bulk ? undefined : () => apply({ forceReframe: true })} />
             )}
             {tab === 'smartcut' && <SmartCutTab on={smartcut} onChange={setSmartcut} bulk={bulk} />}
@@ -214,7 +222,9 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
             {tab === 'hook' && (
               <HookTab on={hookOn} onToggle={setHookOn} bulk={bulk}
                 text={hookText} onText={setHookText} style={hookStyle}
-                onStyle={(partial) => setHookStyle((s) => ({ ...s, ...partial }))} />
+                onStyle={(partial) => setHookStyle((s) => ({ ...s, ...partial }))}
+                position={hookPosition} onPositionChange={setHookPosition}
+                size={hookSize} onSizeChange={setHookSize} />
             )}
             {tab === 'logo' && (
               <LogoTab on={logoOn} onToggle={setLogoOn} logo={logo}

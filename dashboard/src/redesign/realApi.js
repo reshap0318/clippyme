@@ -149,11 +149,12 @@ export async function exportClip(jobId, index, clip, state, preselections) {
   return 'composed';
 }
 
-export async function reframeClip(jobId, index, mode) {
+export async function reframeClip(jobId, index, mode, letterboxZoom) {
+  const zoom = Number(letterboxZoom) || 0;
   const res = await apiFetch(getApiUrl(`/api/reframe/${jobId}/${index}`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reframe_mode: mode }),
+    body: JSON.stringify({ reframe_mode: mode, ...(zoom ? { letterbox_zoom: zoom } : {}) }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

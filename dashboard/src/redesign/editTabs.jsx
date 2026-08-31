@@ -14,14 +14,28 @@ export const REFRAME_OPTS = [
   { id: 'disabled', label: 'Off' },
 ];
 
+// Matches the Create recipe's letterbox zoom control (create.jsx) exactly —
+// same steps, same default — so a clip's post-hoc zoom choice isn't a
+// different scale than the one offered at job creation.
+export const LETTERBOX_ZOOM_OPTS = [
+  { id: '0', label: 'Off' }, { id: '5', label: '5%' }, { id: '10', label: '10%' }, { id: '15', label: '15%' },
+];
+
 // `onRetry` is only passed for a single-clip edit (bulk targets multiple
 // clips whose current renders differ, so "retry" isn't a coherent action).
-export function ReframeTab({ mode, onChange, onRetry }) {
+export function ReframeTab({ mode, onChange, zoom = 0, onZoomChange, onRetry }) {
   return (
     <div className="field" style={{ marginTop: 4 }}>
       <span className="field-label">Reframe</span>
       <Segmented full value={mode} onChange={onChange} options={REFRAME_OPTS} />
       <div className="eo-d" style={{ marginTop: 6 }}>Auto face-track · Subject FrameShift crop · Off letterbox bands</div>
+      {mode === 'disabled' && onZoomChange && (
+        <div style={{ marginTop: 14 }}>
+          <span className="field-label">Letterbox zoom</span>
+          <Segmented full value={String(zoom || 0)} onChange={(id) => onZoomChange(Number(id))} options={LETTERBOX_ZOOM_OPTS} />
+          <div className="eo-d" style={{ marginTop: 6 }}>Crop the sides for a bigger picture and smaller black bars</div>
+        </div>
+      )}
       {onRetry && (
         <div style={{ marginTop: 14 }}>
           <Btn variant="ghost" size="sm" icon="refresh-cw" onClick={onRetry}>Retry this render</Btn>
@@ -115,7 +129,7 @@ export function CaptionsTab({ on, onToggle, subs, onSubsChange }) {
   );
 }
 
-export function HookTab({ on, onToggle, bulk, text, onText, style, onStyle }) {
+export function HookTab({ on, onToggle, bulk, text, onText, style, onStyle, position, onPositionChange, size, onSizeChange }) {
   return (
     <>
       <div className="edit-opt">
@@ -137,6 +151,16 @@ export function HookTab({ on, onToggle, bulk, text, onText, style, onStyle }) {
             </div>
           )}
           <div style={{ marginTop: bulk ? 0 : 10 }}><HookPreview text={bulk ? 'Your hook text' : text} style={style} /></div>
+          <div className="cf-row" style={{ marginTop: 12 }}>
+            <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>Position</span>
+            <Segmented full value={position} onChange={onPositionChange}
+              options={[{ id: 'top', label: 'Top' }, { id: 'center', label: 'Center' }, { id: 'bottom', label: 'Bottom' }]} />
+          </div>
+          <div className="cf-row">
+            <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>Size</span>
+            <Segmented full value={size} onChange={onSizeChange}
+              options={[{ id: 'S', label: 'Small' }, { id: 'M', label: 'Medium' }, { id: 'L', label: 'Large' }]} />
+          </div>
           <HookStyleControls style={style} set={onStyle} />
         </div>
       )}

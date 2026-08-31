@@ -754,9 +754,21 @@ async def reframe_clip(job_id: str, clip_index: int, req: ReframeRequest, reques
 
 @app.get("/api/history")
 async def list_history(request: Request):
-    """Scan output/ for past jobs with metadata files."""
+    """Scan output/ for past jobs with metadata files.
+
+    Excludes jobs still queued/processing/paused — main.py writes
+    ``*_metadata.json`` before per-clip rendering finishes, so a still-running
+    job would otherwise show up as a clickable "complete" row with a
+    partial clip count.
+    """
     require_trusted_config_request(request)
-    return {"jobs": await asyncio.to_thread(scan_history, OUTPUT_DIR)}
+    entries = await asyncio.to_thread(scan_history, OUTPUT_DIR)
+    return {
+        "jobs": [
+            e for e in entries
+            if jobs.get(e["jobId"], {}).get("status") not in job_control.ACTIVE_STATES
+        ]
+    }
 
 @app.delete("/api/history/{job_id}")
 async def delete_history(job_id: str, request: Request):
