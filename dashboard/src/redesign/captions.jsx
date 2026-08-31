@@ -144,7 +144,7 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
   // Non-blocking apply: seed the full param shape the compose backend expects,
   // layer the user's edits on top, hand it to the parent for BACKGROUND
   // processing, and close immediately.
-  const apply = () => {
+  const apply = ({ forceReframe = false } = {}) => {
     // Build from the clean seed + current UI state only (no raw `...sp` spread,
     // which would leak stale style keys into a karaoke re-compose).
     const subtitleParams = { ...seedSubtitleParams(preselections),
@@ -161,7 +161,7 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
     const bannerParams = { enabled: bannerOn, platform: banner.platform, handle: banner.handle, y_pct: banner.y_pct };
     const toggles = { smartcut: effSmartcut, subtitles: subsOn, hook: hookOn, logo: logoOn, grade: gradeOn, banner: bannerOn };
     onApply({ reframeMode, baseMode, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams,
-      dropRanges: effSmartcut ? dropRanges : [] });
+      dropRanges: effSmartcut ? dropRanges : [], forceReframe });
   };
 
   return (
@@ -201,7 +201,10 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
               ))}
             </div>
 
-            {tab === 'reframe' && <ReframeTab mode={reframeMode} onChange={setReframeMode} />}
+            {tab === 'reframe' && (
+              <ReframeTab mode={reframeMode} onChange={setReframeMode}
+                onRetry={bulk ? undefined : () => apply({ forceReframe: true })} />
+            )}
             {tab === 'smartcut' && <SmartCutTab on={smartcut} onChange={setSmartcut} bulk={bulk} />}
             {tab === 'trim' && !bulk && <TrimTab trim={trim} />}
             {tab === 'captions' && (
@@ -235,7 +238,7 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
           )}
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
           <div className="mf-right">
-            <Btn variant="primary" icon={willReprocess ? 'wand-sparkles' : 'check'} onClick={apply}>
+            <Btn variant="primary" icon={willReprocess ? 'wand-sparkles' : 'check'} onClick={() => apply()}>
               {bulk ? `Apply to ${targetCount} clips` : (willReprocess ? 'Apply & reprocess' : 'Save changes')}
             </Btn>
           </div>

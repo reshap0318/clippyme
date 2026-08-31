@@ -6,8 +6,8 @@
 // realApi functions, tests pass fakes.
 
 export async function runApplyEdit({ jobId, idx, apiIdx = idx, params, api, updateClipState, pushToast, now = Date.now }) {
-  const { reframeMode, baseMode, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams, dropRanges } = params;
-  const reframeChanged = reframeMode !== baseMode;
+  const { reframeMode, baseMode, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams, dropRanges, forceReframe } = params;
+  const reframeChanged = forceReframe || reframeMode !== baseMode;
   const anyCompose = !!(toggles.smartcut || toggles.subtitles || toggles.hook || toggles.logo || toggles.grade || toggles.banner);
 
   // Persist the user's choices + flip the card into its processing state up

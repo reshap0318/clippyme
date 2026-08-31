@@ -44,6 +44,14 @@ test('no change at all → no API calls, success toast, no processing flag', asy
   expect(calls.toasts).toEqual([['success', 'Clip 3 updated']]);
 });
 
+test('forceReframe: same mode still calls reframeClip (Retry button)', async () => {
+  const { calls, args } = makeCtx();
+  await runApplyEdit({ ...args, params: baseParams({ forceReframe: true }) });
+  expect(args.api.reframeClip).toHaveBeenCalledWith(JOB, 2, 'auto');
+  const bust = calls.states.find((p) => p.reframeBust);
+  expect(bust).toMatchObject({ reframeBust: 1234, previewUrl: undefined });
+});
+
 test('reframe-only: calls reframeClip, busts cache, never composes', async () => {
   const { calls, args } = makeCtx();
   await runApplyEdit({ ...args, params: baseParams({ reframeMode: 'subject' }) });

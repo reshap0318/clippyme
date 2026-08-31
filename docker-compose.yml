@@ -31,10 +31,13 @@ services:
       # LAN. Override CLIPPYME_BIND (e.g. CLIPPYME_BIND=0.0.0.0) ONLY on a
       # network where every device is trusted.
       - "${CLIPPYME_BIND:-127.0.0.1}:8000:8000"
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
     environment:
+      # Outbound HTTP(S) proxy — required on networks where direct egress is
+      # blocked (yt-dlp, Gemini, Deepgram, HuggingFace all go through this).
+      # Empty on networks with unrestricted internet — no-op.
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
       # HuggingFace token — required for pyannote diarization + Whisper
       # model downloads without rate limits. Both names are accepted.
       - HF_TOKEN=${HF_TOKEN:-}

@@ -14,12 +14,23 @@ export const REFRAME_OPTS = [
   { id: 'disabled', label: 'Off' },
 ];
 
-export function ReframeTab({ mode, onChange }) {
+// `onRetry` is only passed for a single-clip edit (bulk targets multiple
+// clips whose current renders differ, so "retry" isn't a coherent action).
+export function ReframeTab({ mode, onChange, onRetry }) {
   return (
     <div className="field" style={{ marginTop: 4 }}>
       <span className="field-label">Reframe</span>
       <Segmented full value={mode} onChange={onChange} options={REFRAME_OPTS} />
       <div className="eo-d" style={{ marginTop: 6 }}>Auto face-track · Subject FrameShift crop · Off letterbox bands</div>
+      {onRetry && (
+        <div style={{ marginTop: 14 }}>
+          <Btn variant="ghost" size="sm" icon="refresh-cw" onClick={onRetry}>Retry this render</Btn>
+          <div className="eo-d" style={{ marginTop: 6 }}>
+            Re-renders the current mode from scratch, no other changes needed —
+            useful if the last render glitched (frozen tail, off-center crop).
+          </div>
+        </div>
+      )}
     </div>
   );
 }
