@@ -185,6 +185,12 @@ export async function restoreJob(jobId) {
   return res.json(); // { result: { clips, cost_analysis } }
 }
 
+export async function deleteHistoryJob(jobId) {
+  const res = await apiFetch(getApiUrl(`/api/history/${jobId}`), { method: 'DELETE' });
+  if (!res.ok) { const e = new Error('Delete failed'); e.status = res.status; throw e; }
+  return res.json();
+}
+
 // Backend source of truth for "is a job still running" — used to reconcile
 // the localStorage-restored session on load instead of trusting it blindly
 // (job could've finished/failed while the tab was closed, or the session

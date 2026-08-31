@@ -171,11 +171,12 @@ def _pick_latest_metadata(output_dir: str) -> str | None:
     return json_files[0]
 
 
-def _result_payload(data: dict, clips: list, output_dir: str) -> dict:
+def _result_payload(data: dict, clips: list, output_dir: str, base_name: str | None = None) -> dict:
     payload = {
         "clips": clips,
         "cost_analysis": data.get("cost_analysis"),
         "source_info": data.get("source_info"),
+        "video_title": base_name.replace("_", " ") if base_name else None,
     }
     payload.update(runtime_result_fields(output_dir))
     return payload
@@ -197,7 +198,7 @@ def load_partial_result(job_id: str, output_dir: str) -> dict | None:
         runtime = runtime_result_fields(output_dir)
         if not ready and not runtime:
             return None
-        return _result_payload(data, ready, output_dir)
+        return _result_payload(data, ready, output_dir, base_name)
     except (OSError, json.JSONDecodeError, ValueError):
         runtime = runtime_result_fields(output_dir)
         return {"clips": [], **runtime} if runtime else None
@@ -216,6 +217,6 @@ def load_final_result(job_id: str, output_dir: str) -> dict | None:
 
     base_name = os.path.basename(target_json).replace("_metadata.json", "")
     clips = _build_clips(data, base_name, job_id, output_dir, only_ready=False)
-    payload = _result_payload(data, clips, output_dir)
+    payload = _result_payload(data, clips, output_dir, base_name)
     payload["gemini_exhausted"] = data.get("gemini_exhausted")
     return payload

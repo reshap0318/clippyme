@@ -14,7 +14,7 @@ import { PublishModal } from './publish';
 import { HistoryView, SettingsView, ApiKeyModal } from './views';
 import { LiveMonitorView } from './live';
 import { EditClipModal } from './captions';
-import { optsToPreselections, restoreJob, fetchBackendHistory, fetchActiveJobs, cancelJob, pauseJob, resumeJob, stopJob, reframeClip, composeClip } from './realApi';
+import { optsToPreselections, restoreJob, fetchBackendHistory, fetchActiveJobs, deleteHistoryJob, cancelJob, pauseJob, resumeJob, stopJob, reframeClip, composeClip } from './realApi';
 import { allPresets, getDefaultPresetOpts, getDefaultPresetId, saveUserPreset, deleteUserPreset, setDefaultPreset } from './presets';
 import { HOOK_STYLE_DEFAULT } from './data';
 import { clipStateToParams, buildBulkPlan } from '../lib/bulkApply';
@@ -229,7 +229,7 @@ export default function RedesignApp() {
         jobId,
         status: 'complete',
         timestamp: Date.now(),
-        source: processingMedia?.type === 'url' ? processingMedia.payload : processingMedia?.payload?.name || 'Local file',
+        source: data.result?.video_title || (processingMedia?.type === 'url' ? processingMedia.payload : processingMedia?.payload?.name || 'Local file'),
         sourceType: processingMedia?.type || 'file',
         clipCount: data.result?.clips?.length || 0,
         cost: data.result?.cost_analysis?.total_cost || null,
@@ -245,7 +245,7 @@ export default function RedesignApp() {
         jobId,
         status: 'stopped',
         timestamp: Date.now(),
-        source: processingMedia?.type === 'url' ? processingMedia.payload : processingMedia?.payload?.name || 'Local file',
+        source: data.result?.video_title || (processingMedia?.type === 'url' ? processingMedia.payload : processingMedia?.payload?.name || 'Local file'),
         sourceType: processingMedia?.type || 'file',
         clipCount: data.result?.clips?.length || 0,
         cost: data.result?.cost_analysis?.total_cost || null,
@@ -356,6 +356,38 @@ export default function RedesignApp() {
     }
   };
 
+  // A 404 means the backend already has no files for this job (previously
+  // deleted, or wiped by a rebuild/retention sweep) — that's a successful
+  // outcome for a delete, not a failure, so it still drops the local entry.
+  const deleteHistoryEntry = async (jobId) => {
+    try {
+      await deleteHistoryJob(jobId);
+      deleteFromHistory(jobId);
+      pushToast('info', 'Job deleted');
+    } catch (err) {
+      if (err?.status === 404) {
+        deleteFromHistory(jobId);
+        pushToast('info', 'Job deleted');
+      } else if (err?.status === 409) {
+        pushToast('error', 'Job is still active — stop or cancel it first');
+      } else {
+        pushToast('error', 'Delete failed: ' + String(err?.message || err).slice(0, 60));
+      }
+    }
+  };
+
+  const clearAllHistory = async () => {
+    const ids = history.map((h) => h.jobId);
+    const outcomes = await Promise.allSettled(ids.map((id) => deleteHistoryJob(id)));
+    const stillActive = outcomes.filter((o) => o.status === 'rejected' && o.reason?.status === 409).length;
+    clearHistory();
+    if (stillActive > 0) {
+      pushToast('warn', `History cleared — ${stillActive} job(s) still active on the backend, not deleted`);
+    } else {
+      pushToast('info', 'History cleared');
+    }
+  };
+
   const clips = results?.clips || [];
 
   // Visible (non-removed) clips as {i, c} — shared by both bulk paths.
@@ -437,8 +469,8 @@ export default function RedesignApp() {
       {tab === 'history' && !viewingHistory && (
         <HistoryView history={history} availableIds={availableJobIds}
           onOpen={openHistoryJob}
-          onDelete={(id) => { deleteFromHistory(id); pushToast('info', 'Job deleted'); }}
-          onClear={() => { clearHistory(); pushToast('info', 'History cleared'); }} />
+          onDelete={deleteHistoryEntry}
+          onClear={clearAllHistory} />
       )}
       {tab === 'history' && viewingHistory && (
         <div className="fade-in">
