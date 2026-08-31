@@ -185,6 +185,19 @@ export async function restoreJob(jobId) {
   return res.json(); // { result: { clips, cost_analysis } }
 }
 
+// Backend source of truth for "is a job still running" — used to reconcile
+// the localStorage-restored session on load instead of trusting it blindly
+// (job could've finished/failed while the tab was closed, or the session
+// could be stale from a different device sharing the same browser profile).
+export async function fetchActiveJobs() {
+  try {
+    const res = await apiFetch(getApiUrl('/api/jobs/active'));
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.jobs || [];
+  } catch { return null; }
+}
+
 // The History list is driven by localStorage (survives rebuilds), but the
 // backend also knows every completed job still on disk (data/*_metadata.json
 // scan) — a job whose "onCompleted" never fired in a browser (tab closed

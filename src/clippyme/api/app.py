@@ -510,6 +510,19 @@ async def batch_process(req: BatchRequest, request: Request):
     return {"jobs": batch_jobs, "total": len(batch_jobs)}
 
 
+@app.get("/api/jobs/active")
+async def list_active_jobs(request: Request):
+    """Active job ids so the FE can ask the backend "is anything running"
+    instead of trusting its own (localStorage) session on reload."""
+    require_trusted_config_request(request)
+    return {
+        "jobs": [
+            {"job_id": jid, "status": j["status"]}
+            for jid, j in jobs.items()
+            if j.get("status") in job_control.ACTIVE_STATES
+        ]
+    }
+
 @app.get("/api/status/{job_id}")
 async def get_status(job_id: str):
     if not is_valid_job_id(job_id):

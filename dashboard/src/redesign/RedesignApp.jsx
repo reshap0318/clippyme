@@ -14,7 +14,7 @@ import { PublishModal } from './publish';
 import { HistoryView, SettingsView, ApiKeyModal } from './views';
 import { LiveMonitorView } from './live';
 import { EditClipModal } from './captions';
-import { optsToPreselections, restoreJob, fetchBackendHistory, cancelJob, pauseJob, resumeJob, stopJob, reframeClip, composeClip } from './realApi';
+import { optsToPreselections, restoreJob, fetchBackendHistory, fetchActiveJobs, cancelJob, pauseJob, resumeJob, stopJob, reframeClip, composeClip } from './realApi';
 import { allPresets, getDefaultPresetOpts, getDefaultPresetId, saveUserPreset, deleteUserPreset, setDefaultPreset } from './presets';
 import { HOOK_STYLE_DEFAULT } from './data';
 import { clipStateToParams, buildBulkPlan } from '../lib/bulkApply';
@@ -26,7 +26,6 @@ import { useHistory } from '../hooks/useHistory';
 import { useClipStates } from '../hooks/useClipStates';
 import { recordTasteEvent } from '../lib/taste';
 import { useBackendStatus } from '../hooks/useBackendStatus';
-import { useSessionPersistence, loadPersistedSession, clearPersistedSession } from '../hooks/useSessionPersistence';
 
 const DEFAULT_OPTS = {
   mode: 'single', source: 'url', url: '', file: null, fileName: '', batch: '', batchFiles: [], instructions: '',
@@ -78,7 +77,6 @@ function Toasts({ items, onDismiss }) {
 }
 
 export default function RedesignApp() {
-  const restoredSession = useMemo(() => loadPersistedSession(), []);
   // The Gemini key is persisted in localStorage in cleartext. This is an
   // accepted tradeoff for the single-user self-host model (no server-side
   // session store, key never leaves the browser except as the X-Gemini-Key
@@ -88,13 +86,13 @@ export default function RedesignApp() {
   // server-issued token or sessionStorage.
   const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_key') || '');
   const [showKeyModal, setShowKeyModal] = useState(false);
-  const [tab, setTab] = useState(restoredSession?.activeTab || 'create');
-  const [jobId, setJobId] = useState(restoredSession?.jobId || null);
-  const [status, setStatus] = useState(restoredSession?.status || 'idle'); // idle | processing | complete | error
-  const [results, setResults] = useState(restoredSession?.results || null);
+  const [tab, setTab] = useState('create');
+  const [jobId, setJobId] = useState(null);
+  const [status, setStatus] = useState('idle'); // idle | processing | complete | error
+  const [results, setResults] = useState(null);
   const [logs, setLogs] = useState([]);
   const [currentStep, setCurrentStep] = useState(null);
-  const [processingMedia, setProcessingMedia] = useState(restoredSession?.processingMedia || null);
+  const [processingMedia, setProcessingMedia] = useState(null);
   const [paused, setPaused] = useState(false);
   // Seed Create from the user's default preset (if any) so their preferred
   // settings are already applied on load.
@@ -105,7 +103,7 @@ export default function RedesignApp() {
   // external (localStorage) state, so bumping the version must force a recompute.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const presetList = useMemo(() => allPresets(), [presetsVersion]);
-  const [preselections, setPreselectionsRaw] = useState(restoredSession?.preselections || null);
+  const [preselections, setPreselectionsRaw] = useState(null);
   const [confetti, setConfetti] = useState(false);
   const [toasts, setToasts] = useState([]);
   // Track all auto-dismiss timer ids so they can be cleared if the component
@@ -142,6 +140,17 @@ export default function RedesignApp() {
   };
 
   useEffect(() => { if (apiKey) localStorage.setItem('gemini_key', apiKey); }, [apiKey]);
+  // On load, ask the backend (the only source of truth for "is a job still
+  // running") instead of trusting anything cached in the browser — a job
+  // still active on the server drops the user straight into the processing
+  // view; completed/failed jobs live in the History tab instead.
+  useEffect(() => {
+    fetchActiveJobs().then((active) => {
+      if (!active || active.length === 0) return;
+      setJobId(active[0].job_id);
+      setStatus('processing');
+    });
+  }, []);
   // Refresh the on-disk job set whenever the History tab opens, so a job whose
   // files were removed (rebuild/cleanup) shows as unavailable rather than
   // failing silently when clicked.
@@ -153,7 +162,6 @@ export default function RedesignApp() {
       });
     }
   }, [tab, viewingHistory, mergeHistory]);
-  useSessionPersistence({ status, jobId, results, processingMedia, activeTab: tab, preselections });
 
   const dismissToast = useCallback((id) => setToasts((items) => items.filter((item) => item.id !== id)), []);
 
@@ -291,7 +299,6 @@ export default function RedesignApp() {
     if (status === 'processing' && jobId) cancelJob(jobId);
     setStatus('idle'); setJobId(null); setResults(null); setLogs([]); setProcessingMedia(null);
     setCurrentStep(null); setViewingHistory(false); setTab('create'); setPaused(false);
-    clearPersistedSession();
   };
 
   // Job controls (backend: /api/pause, /api/resume, /api/stop).

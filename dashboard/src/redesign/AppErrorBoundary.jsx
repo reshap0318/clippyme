@@ -1,7 +1,6 @@
 
 import { Component } from 'react';
 import { Btn, Icon } from './primitives';
-import { clearPersistedSession } from '../hooks/useSessionPersistence';
 
 export class AppErrorBoundary extends Component {
   constructor(props) {
@@ -25,10 +24,9 @@ export class AppErrorBoundary extends Component {
           <span className="fatal-icon"><Icon n="triangle-alert" /></span>
           <p className="eyebrow">Frontend recovery</p>
           <h1>ClippyMe hit an unexpected UI error.</h1>
-          <p>Your rendered files and backend jobs are untouched. Reload the interface, or clear only the saved browser session if the same screen keeps crashing.</p>
+          <p>Your rendered files and backend jobs are untouched. Reload the interface to recover.</p>
           <div className="fatal-actions">
             <Btn variant="grad" icon="refresh-cw" onClick={() => window.location.reload()}>Reload interface</Btn>
-            <Btn variant="secondary" icon="trash-2" onClick={() => { clearPersistedSession(); window.location.reload(); }}>Clear saved session</Btn>
           </div>
           <details>
             <summary>Technical details</summary>
