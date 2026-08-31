@@ -202,7 +202,7 @@ def test_logo_rejects_truncated_png(client):
 def test_zernio_config_roundtrip(client):
     r = client.post(
         "/api/config/zernio",
-        json={"api_key": "zk_test_secret_key", "accounts": {"tiktok": "acc1"}, "timezone": "Europe/Rome"},
+        json={"api_key": "zk_test_secret_key", "accounts": {"tiktok": "acc1"}, "timezone": "Asia/Jakarta"},
     )
     assert r.status_code == 200
     status = r.json()

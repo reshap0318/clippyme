@@ -37,12 +37,12 @@ def test_live_monitor_start_preserves_runtime_domain_fields():
         **_MONITOR_BASE,
         delete_after_publish=False,
         max_clips=9,
-        timezone="Europe/Rome",
+        timezone="Asia/Jakarta",
     )
     payload = request.model_dump()
     assert payload["delete_after_publish"] is False
     assert payload["max_clips"] == 9
-    assert payload["timezone"] == "Europe/Rome"
+    assert payload["timezone"] == "Asia/Jakarta"
 
 
 @pytest.mark.parametrize("max_clips", [-1, 1001])

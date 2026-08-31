@@ -91,12 +91,12 @@ def test_clearing_key_with_empty_string(tmp_config, monkeypatch):
 def test_zernio_namespace_isolated_from_core(tmp_config, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     config_store.save_persistent_config({"GEMINI_API_KEY": "g"})
-    config_store.save_zernio_config(api_key="sk_secretkey_1234", timezone="Europe/Rome")
+    config_store.save_zernio_config(api_key="sk_secretkey_1234", timezone="Asia/Jakarta")
     # Updating core config must NOT wipe the zernio namespace.
     config_store.save_persistent_config({"GEMINI_API_KEY": "g2"})
     z = config_store.load_zernio_config()
     assert z["api_key"] == "sk_secretkey_1234"
-    assert z["timezone"] == "Europe/Rome"
+    assert z["timezone"] == "Asia/Jakarta"
 
 
 def test_zernio_accounts_merge_and_clear(tmp_config):

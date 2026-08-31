@@ -244,7 +244,7 @@ def test_zernio_api_rejects_redirect_instead_of_treating_it_as_json_success():
 def test_scheduler_preserves_requested_timezone():
     from zoneinfo import ZoneInfo
 
-    tz = ZoneInfo("Europe/Rome")
+    tz = ZoneInfo("Asia/Jakarta")
     day = date(2026, 7, 1)
     now = datetime(2026, 7, 1, 8, 0, tzinfo=tz)
     occupied = [datetime(2026, 7, 1, 10, 0, tzinfo=tz)]
@@ -293,12 +293,12 @@ def test_auto_schedule_uses_configured_timezone_not_server_local(monkeypatch, tm
         caption="caption",
         platform_targets=[{"platform": "youtube", "accountId": "a"}],
         schedule_mode="auto",
-        timezone="Europe/Rome",
+        timezone="Asia/Jakarta",
         start_date="2026-07-01",
         scheduler=SmartScheduler(rng=random.Random(2)),
     )
     assert result["scheduled_for"].endswith("+02:00")
-    assert captured["timezone"] == "Europe/Rome"
+    assert captured["timezone"] == "Asia/Jakarta"
     assert captured["scheduled_for"] == result["scheduled_for"]
 
 

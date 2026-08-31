@@ -243,7 +243,7 @@ def _validate_bool(value, field: str) -> bool:
     return value
 
 
-def validate_monitor_config(config: dict, default_timezone: str = "Europe/Rome") -> dict:
+def validate_monitor_config(config: dict, default_timezone: str = "Asia/Jakarta") -> dict:
     """Coerce + bound a raw start payload into the monitor's config dict.
 
     Raises ``ValidationError`` on a bad platform/mode/channel. Numeric knobs are
@@ -293,7 +293,7 @@ def validate_monitor_config(config: dict, default_timezone: str = "Europe/Rome")
         "instructions": str(config.get("instructions") or "").strip()[:MAX_INSTRUCTIONS_LEN],
         "caption_template": str(config.get("caption_template") or "")[:2200],
         "title_template": str(config.get("title_template") or "")[:500],
-        "timezone": str(config.get("timezone") or default_timezone or "Europe/Rome")[:64],
+        "timezone": str(config.get("timezone") or default_timezone or "Asia/Jakarta")[:64],
         # "backfill" (default) recovers footage missed before capture started
         # (prelive window, kick/twitch missed-window recovery). "live_only"
         # never recovers pre-start footage — coverage begins at launch. This is

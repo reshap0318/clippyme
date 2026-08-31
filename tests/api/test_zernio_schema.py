@@ -16,7 +16,7 @@ def test_zernio_accepts_normal_config():
     req = ZernioConfigRequest(
         api_key="sk_live_abc123",
         accounts={"tiktok": "acc1", "youtube": "acc2", "instagram": None},
-        timezone="Europe/Rome",
+        timezone="Asia/Jakarta",
     )
     assert req.accounts["tiktok"] == "acc1"
 

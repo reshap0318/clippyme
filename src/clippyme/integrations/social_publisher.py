@@ -114,7 +114,7 @@ def _reject_internal_upload_url(url: str) -> None:
 
 
 ZERNIO_BASE_URL = _safe_zernio_base_url()
-DEFAULT_TIMEZONE = os.environ.get("ZERNIO_DEFAULT_TZ", "Europe/Rome")
+DEFAULT_TIMEZONE = os.environ.get("ZERNIO_DEFAULT_TZ", "Asia/Jakarta")
 HTTP_TIMEOUT_SECONDS = int(os.environ.get("ZERNIO_HTTP_TIMEOUT", "60"))
 UPLOAD_TIMEOUT_SECONDS = int(os.environ.get("ZERNIO_UPLOAD_TIMEOUT", "600"))
 

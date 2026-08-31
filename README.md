@@ -72,14 +72,14 @@ While a job runs you stay in control:
 
 ## Stack
 
-| Layer | Tech |
-|---|---|
-| Backend | Python 3.11, FastAPI, Pydantic v2, asyncio queue |
-| Pipeline | yt-dlp · Deepgram REST · ElevenLabs Scribe REST · Faster-Whisper · PySceneDetect · YOLOv8 (Ultralytics) · MediaPipe · ffmpeg · auto-editor (Nim binary) · Pillow |
-| AI | Google Gemini (viral detection) · Deepgram Nova-3 / ElevenLabs Scribe (transcription) |
-| Frontend | React 18 · Vite 6 · Tailwind CSS v4 · lucide-react · custom toasts/primitives |
-| Publishing | Zernio multi-platform API |
-| Deploy | Docker Compose (CPU multi-arch + optional NVIDIA GPU profile) |
+| Layer      | Tech                                                                                                                                                             |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend    | Python 3.11, FastAPI, Pydantic v2, asyncio queue                                                                                                                 |
+| Pipeline   | yt-dlp · Deepgram REST · ElevenLabs Scribe REST · Faster-Whisper · PySceneDetect · YOLOv8 (Ultralytics) · MediaPipe · ffmpeg · auto-editor (Nim binary) · Pillow |
+| AI         | Google Gemini (viral detection) · Deepgram Nova-3 / ElevenLabs Scribe (transcription)                                                                            |
+| Frontend   | React 18 · Vite 6 · Tailwind CSS v4 · lucide-react · custom toasts/primitives                                                                                    |
+| Publishing | Zernio multi-platform API                                                                                                                                        |
+| Deploy     | Docker Compose (CPU multi-arch + optional NVIDIA GPU profile)                                                                                                    |
 
 ---
 
@@ -137,62 +137,62 @@ python -m clippyme.pipeline.main <url_or_path> [--instructions "focus on hooks"]
 
 All API keys, model selection, and cookies are managed **from the dashboard Settings tab** and persisted to `data/config.json` (mode `0600`, git-ignored). No `.env` file required.
 
-| Key | Required for | Notes |
-|---|---|---|
-| `GEMINI_API_KEY` | Viral moment detection | Default model `gemini-3.5-flash`; override per job or set the default in Settings (live model discovery). |
-| `GEMINI_FALLBACK_MODELS` | Automatic quota fallback | Default: `gemini-3.1-flash-lite,gemini-3-flash-preview,gemini-2.5-flash,gemini-2.5-flash-lite`. Each new job retries the preferred `GEMINI_MODEL` first. |
-| `DEEPGRAM_API_KEY` | Cloud transcription (default) | Falls back to local Faster-Whisper if missing. |
-| `ELEVENLABS_API_KEY` | Alternative cloud transcription (Scribe) | Adds audio-event tags + optional Voice Isolator; also falls back to Faster-Whisper. |
-| `HUGGINGFACE_TOKEN` | Optional gated models for Whisper | |
-| Zernio | Social publishing | Per-platform account IDs auto-discovered via "Discover from Zernio". |
-| Cookies | YouTube age-gated / region-locked content | Upload a Netscape `cookies.txt` from the Settings tab. Stored at `data/cookies.txt`, mode `0600`, max 10 MB. |
+| Key                      | Required for                              | Notes                                                                                                                                                    |
+| ------------------------ | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GEMINI_API_KEY`         | Viral moment detection                    | Default model `gemini-3.5-flash`; override per job or set the default in Settings (live model discovery).                                                |
+| `GEMINI_FALLBACK_MODELS` | Automatic quota fallback                  | Default: `gemini-3.1-flash-lite,gemini-3-flash-preview,gemini-2.5-flash,gemini-2.5-flash-lite`. Each new job retries the preferred `GEMINI_MODEL` first. |
+| `DEEPGRAM_API_KEY`       | Cloud transcription (default)             | Falls back to local Faster-Whisper if missing.                                                                                                           |
+| `ELEVENLABS_API_KEY`     | Alternative cloud transcription (Scribe)  | Adds audio-event tags + optional Voice Isolator; also falls back to Faster-Whisper.                                                                      |
+| `HUGGINGFACE_TOKEN`      | Optional gated models for Whisper         |                                                                                                                                                          |
+| Zernio                   | Social publishing                         | Per-platform account IDs auto-discovered via "Discover from Zernio".                                                                                     |
+| Cookies                  | YouTube age-gated / region-locked content | Upload a Netscape `cookies.txt` from the Settings tab. Stored at `data/cookies.txt`, mode `0600`, max 10 MB.                                             |
 
 Runtime env overrides (rarely needed):
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `CLIPPYME_BIND` | `127.0.0.1` | Host interface both published ports (8000/5175) bind to. `0.0.0.0` exposes the app to the LAN — deliberate choice only. |
-| `CLIPPYME_API_TOKEN` | _(unset)_ | Optional shared-secret auth: when set, every `/api` request must carry it (`X-API-Token` or `Authorization: Bearer`). The dashboard stores it in Settings → API token. Unset = no-op. |
-| `TRANSCRIPTION_PROVIDER` | `deepgram` | Or `elevenlabs` (Scribe), or `whisper` to force local. |
-| `ELEVENLABS_AUDIO_ISOLATION` | `false` | Run the ElevenLabs Voice Isolator before ASR to strip background noise/music on noisy sources. |
-| `CLIPPYME_TRANSCRIBE_AUDIO_ONLY` | `true` | Strip to audio-only FLAC before transcription; `false` sends the full video. |
-| `CLIPPYME_SILENCE_SNAP` | `1` | Refine clip edges to the nearest waveform silence trough (ffmpeg `silencedetect`); `0`/`false` keeps the transcript-derived edges. |
-| `DEEPGRAM_MODEL` | `nova-3` | |
-| `DEEPGRAM_LANGUAGE` | `multi` | |
-| `REFRAME_COMFORT` | `1` | Anti-nausea default (global-smooth + per-scene stationary + zoom lock). `0` = original single-pass tracker. |
-| `REFRAME_STATIC_AUTO` | on | Lock the camera per scene, zero pan, zero mid-shot zoom. `0` = eased-but-moving smoother. |
-| `REFRAME_MOTION_WIDE_THRESH` | `0.12` | How far a single subject may travel (fraction of frame) before TRACK is demoted to a static WIDE crop. |
-| `REFRAME_STATIONARY_THRESH` / `REFRAME_ZOOM_LOCK` | `0.30` / on | Comfort tuning: scene-lock threshold / one zoom level per scene. |
-| `REFRAME_SALIENT_GENERAL` | _(off)_ | Content-aware crop for faceless scenes instead of letterboxing. |
-| `REFRAME_OBJECT_WEIGHTS` | _(off)_ | Faceless scenes follow a weighted-object centroid (product/dog/car) by reusing the existing YOLO pass. `1` = curated defaults, or `dog:3,car:2` for custom weights. |
-| `REFRAME_FRAMESHIFT_WEIGHTS` | _(GUI defaults)_ | `object`-mode class weights. Defaults `face:1,person:0.8,default:0.5`; override any of those three or add a COCO class, e.g. `face:1,person:0.8,default:0.5,dog:3`. |
-| `YTDLP_PLAYER_CLIENTS` | `default,tv+tv_embedded,web_safari` | Comma-separated yt-dlp player-client fallback chain; each entry is `default` (no override) or a `+`-joined client list. On a 403 / format-negotiation failure the next entry is tried (5 s apart); page-level blocks (bot wall, private/removed, geo) stop the chain immediately. |
-| `CLIPPYME_X264_CRF` | `18` | Shared libx264 quality for every render/compose encode (near-visually-lossless; lower = higher quality + bigger files, 0–51). Stops the stacked re-encodes from compounding into soft output. |
-| `CLIPPYME_X264_PRESET` | `medium` | Shared libx264 preset; a faster preset (e.g. `fast`) trades a little quality/size for render speed. |
-| `ZERNIO_DEFAULT_TZ` | `Europe/Rome` | |
-| `ZERNIO_MIN_GAP_SECONDS` | `5400` | SmartScheduler min spacing between posts. |
-| `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` | _(unset)_ | Helix app creds ([dev.twitch.tv](https://dev.twitch.tv/console/apps)) for the Twitch content monitor. Also settable in Settings. Fallback only if not stored in `data/config.json`. |
-| `MAX_FILE_SIZE_MB` | `16384` | Max local-video upload size in MB (16 GB default — long stream VODs easily exceed the old 2 GB). Raising past 16 GB behind the prod nginx frontend also requires raising `client_max_body_size` in `dashboard/nginx.conf`. |
-| `REFRAME_SMOOTHER` | _(blank)_ | `euro` switches the speaker camera to the 1€ adaptive filter; blank keeps the two-speed EMA. |
-| `REFRAME_LOST_HOLD` | `90` | Frames a lost subject is held before the camera drifts back to center (~3 s @ 30 fps). |
-| `REFRAME_LOST_DRIFT` | `0.05` | Per-frame ease rate of the drift-to-center recovery. |
-| `REFRAME_EURO_MINCUTOFF` / `REFRAME_EURO_BETA` | `0.014` / `0.0008` | 1€ smoother tuning (only when `REFRAME_SMOOTHER=euro`): smoothness floor / speed responsiveness. |
-| `REFRAME_SPRING_RESPONSE` / `REFRAME_SPRING_DAMPING` | `0.18` / `0.82` | Damped-spring smoother tuning (only when `REFRAME_SMOOTHER=spring`): acceleration / velocity decay. |
-| `REFRAME_GLOBAL_SMOOTH` / `REFRAME_GLOBAL_METHOD` | _(off)_ / `savgol` | Opt-in 2-pass trajectory smoothing. ⚠️ `kalman`/`l2` only take effect with `REFRAME_STATIC_AUTO=0` — under the default static-auto policy each scene collapses to one locked crop and the trajectory smoother never runs. |
-| `REFRAME_SPEAKER_SWITCH_MARGIN` | `1.25` | Challenger/current score ratio required before the active-speaker camera switches identity (hysteresis against ping-pong cuts). |
-| `REFRAME_MIN_FACE_RATIO` | `0.10` | Ignore faces smaller than this share of the largest candidate — background heads never steal the frame. |
-| `REFRAME_DIALOGUE_GROUP` | `1` | Keep two similarly-active, separated participants in frame instead of cutting between them. |
-| `REFRAME_DIALOGUE_SCORE_RATIO` / `REFRAME_DIALOGUE_SEPARATION` | `0.88` / `0.28` | Group-framing thresholds: min second/first activity ratio, min horizontal separation (fraction of frame). |
-| `CLIPPYME_JOB_MAX_ATTEMPTS` | `3` | Worker attempts per queued job (bounded 1–10). Exit code `2` = deterministic rejection, never retried. |
-| `CLIPPYME_RENDER_QA_RETRIES` | `1` | Extra render attempts after a **critical** output-QA failure. |
-| `CLIPPYME_KEEP_CHECKPOINTS` | `0` | Keep the hidden transcript/phase checkpoints after a fully successful job. |
-| `CLIPPYME_MAX_DURATION_SECONDS` / `CLIPPYME_MAX_INPUT_GB` | _(disabled)_ | Preflight quotas: reject sources longer / larger than this before any expensive work. |
-| `CLIPPYME_MAX_ESTIMATED_COST_USD` | _(disabled)_ | Reject a job whose estimated Gemini spend exceeds this. Conservative estimate, not a billing promise. |
-| `CLIPPYME_MIN_FREE_DISK_GB` | `1` | Free space that must still remain after the estimated peak disk use. |
-| `CLIPPYME_MAX_CLIPS` | _(disabled)_ | Cap how many ranked candidates are actually rendered. |
-| `CLIPPYME_CREATOR_NAME` | _(unset)_ | Channel owner passed to the Gemini prompt so titles can name whose stream the clip is from. Set per-job by the Live Monitor; never used to attribute a quote. |
-| `CLIPPYME_MIN_VIRAL_SCORE` | _(disabled)_ | Drop clips scoring below this (1–100) before the cap — the clip count then follows the material (a weak segment can yield zero clips). Set by the Live Monitor's "Automatic" clip selection. |
-| `CLIPPYME_QA_SIGNAL` | `1` | `0` runs structural output QA only (skips black/freeze/loudness probes) on constrained hosts. |
+| Variable                                                       | Default                             | Purpose                                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLIPPYME_BIND`                                                | `127.0.0.1`                         | Host interface both published ports (8000/5175) bind to. `0.0.0.0` exposes the app to the LAN — deliberate choice only.                                                                                                                                                           |
+| `CLIPPYME_API_TOKEN`                                           | _(unset)_                           | Optional shared-secret auth: when set, every `/api` request must carry it (`X-API-Token` or `Authorization: Bearer`). The dashboard stores it in Settings → API token. Unset = no-op.                                                                                             |
+| `TRANSCRIPTION_PROVIDER`                                       | `deepgram`                          | Or `elevenlabs` (Scribe), or `whisper` to force local.                                                                                                                                                                                                                            |
+| `ELEVENLABS_AUDIO_ISOLATION`                                   | `false`                             | Run the ElevenLabs Voice Isolator before ASR to strip background noise/music on noisy sources.                                                                                                                                                                                    |
+| `CLIPPYME_TRANSCRIBE_AUDIO_ONLY`                               | `true`                              | Strip to audio-only FLAC before transcription; `false` sends the full video.                                                                                                                                                                                                      |
+| `CLIPPYME_SILENCE_SNAP`                                        | `1`                                 | Refine clip edges to the nearest waveform silence trough (ffmpeg `silencedetect`); `0`/`false` keeps the transcript-derived edges.                                                                                                                                                |
+| `DEEPGRAM_MODEL`                                               | `nova-3`                            |                                                                                                                                                                                                                                                                                   |
+| `DEEPGRAM_LANGUAGE`                                            | `multi`                             |                                                                                                                                                                                                                                                                                   |
+| `REFRAME_COMFORT`                                              | `1`                                 | Anti-nausea default (global-smooth + per-scene stationary + zoom lock). `0` = original single-pass tracker.                                                                                                                                                                       |
+| `REFRAME_STATIC_AUTO`                                          | on                                  | Lock the camera per scene, zero pan, zero mid-shot zoom. `0` = eased-but-moving smoother.                                                                                                                                                                                         |
+| `REFRAME_MOTION_WIDE_THRESH`                                   | `0.12`                              | How far a single subject may travel (fraction of frame) before TRACK is demoted to a static WIDE crop.                                                                                                                                                                            |
+| `REFRAME_STATIONARY_THRESH` / `REFRAME_ZOOM_LOCK`              | `0.30` / on                         | Comfort tuning: scene-lock threshold / one zoom level per scene.                                                                                                                                                                                                                  |
+| `REFRAME_SALIENT_GENERAL`                                      | _(off)_                             | Content-aware crop for faceless scenes instead of letterboxing.                                                                                                                                                                                                                   |
+| `REFRAME_OBJECT_WEIGHTS`                                       | _(off)_                             | Faceless scenes follow a weighted-object centroid (product/dog/car) by reusing the existing YOLO pass. `1` = curated defaults, or `dog:3,car:2` for custom weights.                                                                                                               |
+| `REFRAME_FRAMESHIFT_WEIGHTS`                                   | _(GUI defaults)_                    | `object`-mode class weights. Defaults `face:1,person:0.8,default:0.5`; override any of those three or add a COCO class, e.g. `face:1,person:0.8,default:0.5,dog:3`.                                                                                                               |
+| `YTDLP_PLAYER_CLIENTS`                                         | `default,tv+tv_embedded,web_safari` | Comma-separated yt-dlp player-client fallback chain; each entry is `default` (no override) or a `+`-joined client list. On a 403 / format-negotiation failure the next entry is tried (5 s apart); page-level blocks (bot wall, private/removed, geo) stop the chain immediately. |
+| `CLIPPYME_X264_CRF`                                            | `18`                                | Shared libx264 quality for every render/compose encode (near-visually-lossless; lower = higher quality + bigger files, 0–51). Stops the stacked re-encodes from compounding into soft output.                                                                                     |
+| `CLIPPYME_X264_PRESET`                                         | `medium`                            | Shared libx264 preset; a faster preset (e.g. `fast`) trades a little quality/size for render speed.                                                                                                                                                                               |
+| `ZERNIO_DEFAULT_TZ`                                            | `Asia/Jakarta`                      |                                                                                                                                                                                                                                                                                   |
+| `ZERNIO_MIN_GAP_SECONDS`                                       | `5400`                              | SmartScheduler min spacing between posts.                                                                                                                                                                                                                                         |
+| `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`                    | _(unset)_                           | Helix app creds ([dev.twitch.tv](https://dev.twitch.tv/console/apps)) for the Twitch content monitor. Also settable in Settings. Fallback only if not stored in `data/config.json`.                                                                                               |
+| `MAX_FILE_SIZE_MB`                                             | `16384`                             | Max local-video upload size in MB (16 GB default — long stream VODs easily exceed the old 2 GB). Raising past 16 GB behind the prod nginx frontend also requires raising `client_max_body_size` in `dashboard/nginx.conf`.                                                        |
+| `REFRAME_SMOOTHER`                                             | _(blank)_                           | `euro` switches the speaker camera to the 1€ adaptive filter; blank keeps the two-speed EMA.                                                                                                                                                                                      |
+| `REFRAME_LOST_HOLD`                                            | `90`                                | Frames a lost subject is held before the camera drifts back to center (~3 s @ 30 fps).                                                                                                                                                                                            |
+| `REFRAME_LOST_DRIFT`                                           | `0.05`                              | Per-frame ease rate of the drift-to-center recovery.                                                                                                                                                                                                                              |
+| `REFRAME_EURO_MINCUTOFF` / `REFRAME_EURO_BETA`                 | `0.014` / `0.0008`                  | 1€ smoother tuning (only when `REFRAME_SMOOTHER=euro`): smoothness floor / speed responsiveness.                                                                                                                                                                                  |
+| `REFRAME_SPRING_RESPONSE` / `REFRAME_SPRING_DAMPING`           | `0.18` / `0.82`                     | Damped-spring smoother tuning (only when `REFRAME_SMOOTHER=spring`): acceleration / velocity decay.                                                                                                                                                                               |
+| `REFRAME_GLOBAL_SMOOTH` / `REFRAME_GLOBAL_METHOD`              | _(off)_ / `savgol`                  | Opt-in 2-pass trajectory smoothing. ⚠️ `kalman`/`l2` only take effect with `REFRAME_STATIC_AUTO=0` — under the default static-auto policy each scene collapses to one locked crop and the trajectory smoother never runs.                                                         |
+| `REFRAME_SPEAKER_SWITCH_MARGIN`                                | `1.25`                              | Challenger/current score ratio required before the active-speaker camera switches identity (hysteresis against ping-pong cuts).                                                                                                                                                   |
+| `REFRAME_MIN_FACE_RATIO`                                       | `0.10`                              | Ignore faces smaller than this share of the largest candidate — background heads never steal the frame.                                                                                                                                                                           |
+| `REFRAME_DIALOGUE_GROUP`                                       | `1`                                 | Keep two similarly-active, separated participants in frame instead of cutting between them.                                                                                                                                                                                       |
+| `REFRAME_DIALOGUE_SCORE_RATIO` / `REFRAME_DIALOGUE_SEPARATION` | `0.88` / `0.28`                     | Group-framing thresholds: min second/first activity ratio, min horizontal separation (fraction of frame).                                                                                                                                                                         |
+| `CLIPPYME_JOB_MAX_ATTEMPTS`                                    | `3`                                 | Worker attempts per queued job (bounded 1–10). Exit code `2` = deterministic rejection, never retried.                                                                                                                                                                            |
+| `CLIPPYME_RENDER_QA_RETRIES`                                   | `1`                                 | Extra render attempts after a **critical** output-QA failure.                                                                                                                                                                                                                     |
+| `CLIPPYME_KEEP_CHECKPOINTS`                                    | `0`                                 | Keep the hidden transcript/phase checkpoints after a fully successful job.                                                                                                                                                                                                        |
+| `CLIPPYME_MAX_DURATION_SECONDS` / `CLIPPYME_MAX_INPUT_GB`      | _(disabled)_                        | Preflight quotas: reject sources longer / larger than this before any expensive work.                                                                                                                                                                                             |
+| `CLIPPYME_MAX_ESTIMATED_COST_USD`                              | _(disabled)_                        | Reject a job whose estimated Gemini spend exceeds this. Conservative estimate, not a billing promise.                                                                                                                                                                             |
+| `CLIPPYME_MIN_FREE_DISK_GB`                                    | `1`                                 | Free space that must still remain after the estimated peak disk use.                                                                                                                                                                                                              |
+| `CLIPPYME_MAX_CLIPS`                                           | _(disabled)_                        | Cap how many ranked candidates are actually rendered.                                                                                                                                                                                                                             |
+| `CLIPPYME_CREATOR_NAME`                                        | _(unset)_                           | Channel owner passed to the Gemini prompt so titles can name whose stream the clip is from. Set per-job by the Live Monitor; never used to attribute a quote.                                                                                                                     |
+| `CLIPPYME_MIN_VIRAL_SCORE`                                     | _(disabled)_                        | Drop clips scoring below this (1–100) before the cap — the clip count then follows the material (a weak segment can yield zero clips). Set by the Live Monitor's "Automatic" clip selection.                                                                                      |
+| `CLIPPYME_QA_SIGNAL`                                           | `1`                                 | `0` runs structural output QA only (skips black/freeze/loudness probes) on constrained hosts.                                                                                                                                                                                     |
 
 ---
 
@@ -203,7 +203,7 @@ Queued jobs run through `clippyme.pipeline.orchestrator`, which wraps the proven
 - **Durable lifecycle** — each job dir keeps `.clippyme_runtime.json` (owner-only phase/progress/attempt state) and `.clippyme_checkpoint/` (reusable transcript + phase artefacts). Writes are atomic and fsync'd; the `/videos` mount rejects both. A retry or a backend restart reuses the existing download, transcript, analysis and finished clips instead of redoing them.
 - **Bounded retries** — transient failures back off exponentially up to `CLIPPYME_JOB_MAX_ATTEMPTS`; exit code `2` (validation/preflight rejection) is terminal. Stop/cancel semantics are unchanged.
 - **Preflight** — before transcription or Gemini analysis, the source is probed and runtime, peak disk and Gemini tokens/cost are estimated, so a job that would blow a quota is rejected up front rather than halfway through.
-- **Output QA** — every temporary render is probed (size, duration, stream presence, aspect, black/frozen-frame ratio, mean/peak audio) *before* it atomically replaces the public clip. Structural defects trigger a bounded re-render; signal findings stay as warnings in metadata rather than deleting a usable clip.
+- **Output QA** — every temporary render is probed (size, duration, stream presence, aspect, black/frozen-frame ratio, mean/peak audio) _before_ it atomically replaces the public clip. Structural defects trigger a bounded re-render; signal findings stay as warnings in metadata rather than deleting a usable clip.
 - **Telemetry** — `GET /api/status/{job_id}` may carry `result.operations` (phase, attempt, ETA, verified/failed clips, host CPU/RAM/disk, per-stage durations, QA summaries), surfaced in the processing view. The job log keeps a single replaceable `[runtime]` line so polling can't grow it without bound.
 - **Regression suites** — `python -m clippyme.pipeline.quality_suite <manifest>.json --output report.json` replays the production QA policy over versioned fixture clips; exit `0` pass, `1` quality regression, `2` invalid/unsafe manifest. Manifest paths are confined to the manifest directory, so it is safe to run in CI.
 
@@ -285,39 +285,39 @@ data/                 Persisted config, cookies, transcript cache (git-ignored)
 
 All routes are JSON in / JSON out. Job IDs are strict UUID4. Config endpoints require a trusted-origin client (loopback or RFC1918).
 
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/api/process` | Single video (URL or upload). Accepts `reframe_mode`, per-job `model`. |
-| `POST` | `/api/batch` | Up to 20 URLs in one shot. |
-| `GET` | `/api/status/{job_id}` | Live status + logs + result (clips stream in as they finish). |
-| `POST` | `/api/pause/{job_id}` | Suspend the running job (resume-able). |
-| `POST` | `/api/resume/{job_id}` | Resume a paused job. |
-| `POST` | `/api/stop/{job_id}` | Stop early but **keep the clips finished so far**. |
-| `POST` | `/api/cancel/{job_id}` | Kill the subprocess **and discard all output**. |
-| `POST` | `/api/compose/{job_id}/{clip_index}` | Compose Grade + Subtitles + Smart Cut + Hook + Logo on demand. |
-| `POST` | `/api/smartcut/{job_id}/{clip_index}` | Smart Cut a single clip (optional `drop_ranges` for manual trim). |
-| `GET` | `/api/transcript/{job_id}/{clip_index}` | Per-clip transcript segments for the manual-trim UI. |
-| `POST` | `/api/edit-ai/{job_id}/{clip_index}` | Conversational trim: a plain-English instruction → Gemini → spans to cut. |
-| `POST` | `/api/reframe/{job_id}/{clip_index}` | Switch a clip's reframe mode. |
-| `GET` | `/api/history` | Past jobs from disk. |
-| `POST` | `/api/history/{job_id}/restore` | Reload a past job into memory. |
-| `DELETE` | `/api/history/{job_id}` | Delete from disk. |
-| `GET` | `/api/config/models` | List Gemini models (trusted origin). |
-| `POST` | `/api/config` | Persist API keys (trusted origin). |
-| `POST` | `/api/config/cookies` | Upload Netscape cookies file (trusted origin, 10 MB cap). |
-| `GET` | `/api/config/cookies/status` | Is a cookie file present? |
-| `DELETE` | `/api/config/cookies` | Remove the cookies file. |
-| `POST`/`GET`/`DELETE` | `/api/config/logo` | Upload / status / remove the brand logo PNG. |
-| `GET`/`POST`/`DELETE` | `/api/config/fonts` | List / upload / remove custom subtitle+hook fonts. |
-| `GET` | `/api/config/zernio` | Masked Zernio config. |
-| `POST` | `/api/config/zernio` | Save/update Zernio credentials. |
-| `GET` | `/api/zernio/accounts` | Discover accounts via Zernio. |
-| `POST` | `/api/publish/{job_id}/{clip_index}` | Upload + schedule a clip on TikTok/IG/YouTube. |
-| `POST` | `/api/live-monitor/start` | Start a channel monitor (kick/twitch/youtube, live/vod mode). |
-| `POST` | `/api/live-monitor/stop` | Stop one monitor (`{monitor_id}`) or all. |
-| `POST` | `/api/live-monitor/{id}/config` | Update a running monitor's settings (allow-listed fields; apply to future clips). |
-| `POST` | `/api/live-monitor/{id}/publishing` | Pause/resume Zernio auto-publish (`{"enabled": bool}`); pending clips drain on resume. |
-| `GET` | `/api/live-monitor/status` | All monitors: state, segments captured, backfill pending, clips published. |
+| Method                | Path                                    | Purpose                                                                                |
+| --------------------- | --------------------------------------- | -------------------------------------------------------------------------------------- |
+| `POST`                | `/api/process`                          | Single video (URL or upload). Accepts `reframe_mode`, per-job `model`.                 |
+| `POST`                | `/api/batch`                            | Up to 20 URLs in one shot.                                                             |
+| `GET`                 | `/api/status/{job_id}`                  | Live status + logs + result (clips stream in as they finish).                          |
+| `POST`                | `/api/pause/{job_id}`                   | Suspend the running job (resume-able).                                                 |
+| `POST`                | `/api/resume/{job_id}`                  | Resume a paused job.                                                                   |
+| `POST`                | `/api/stop/{job_id}`                    | Stop early but **keep the clips finished so far**.                                     |
+| `POST`                | `/api/cancel/{job_id}`                  | Kill the subprocess **and discard all output**.                                        |
+| `POST`                | `/api/compose/{job_id}/{clip_index}`    | Compose Grade + Subtitles + Smart Cut + Hook + Logo on demand.                         |
+| `POST`                | `/api/smartcut/{job_id}/{clip_index}`   | Smart Cut a single clip (optional `drop_ranges` for manual trim).                      |
+| `GET`                 | `/api/transcript/{job_id}/{clip_index}` | Per-clip transcript segments for the manual-trim UI.                                   |
+| `POST`                | `/api/edit-ai/{job_id}/{clip_index}`    | Conversational trim: a plain-English instruction → Gemini → spans to cut.              |
+| `POST`                | `/api/reframe/{job_id}/{clip_index}`    | Switch a clip's reframe mode.                                                          |
+| `GET`                 | `/api/history`                          | Past jobs from disk.                                                                   |
+| `POST`                | `/api/history/{job_id}/restore`         | Reload a past job into memory.                                                         |
+| `DELETE`              | `/api/history/{job_id}`                 | Delete from disk.                                                                      |
+| `GET`                 | `/api/config/models`                    | List Gemini models (trusted origin).                                                   |
+| `POST`                | `/api/config`                           | Persist API keys (trusted origin).                                                     |
+| `POST`                | `/api/config/cookies`                   | Upload Netscape cookies file (trusted origin, 10 MB cap).                              |
+| `GET`                 | `/api/config/cookies/status`            | Is a cookie file present?                                                              |
+| `DELETE`              | `/api/config/cookies`                   | Remove the cookies file.                                                               |
+| `POST`/`GET`/`DELETE` | `/api/config/logo`                      | Upload / status / remove the brand logo PNG.                                           |
+| `GET`/`POST`/`DELETE` | `/api/config/fonts`                     | List / upload / remove custom subtitle+hook fonts.                                     |
+| `GET`                 | `/api/config/zernio`                    | Masked Zernio config.                                                                  |
+| `POST`                | `/api/config/zernio`                    | Save/update Zernio credentials.                                                        |
+| `GET`                 | `/api/zernio/accounts`                  | Discover accounts via Zernio.                                                          |
+| `POST`                | `/api/publish/{job_id}/{clip_index}`    | Upload + schedule a clip on TikTok/IG/YouTube.                                         |
+| `POST`                | `/api/live-monitor/start`               | Start a channel monitor (kick/twitch/youtube, live/vod mode).                          |
+| `POST`                | `/api/live-monitor/stop`                | Stop one monitor (`{monitor_id}`) or all.                                              |
+| `POST`                | `/api/live-monitor/{id}/config`         | Update a running monitor's settings (allow-listed fields; apply to future clips).      |
+| `POST`                | `/api/live-monitor/{id}/publishing`     | Pause/resume Zernio auto-publish (`{"enabled": bool}`); pending clips drain on resume. |
+| `GET`                 | `/api/live-monitor/status`              | All monitors: state, segments captured, backfill pending, clips published.             |
 
 Static mounts: `/videos`, `/thumbnails`, `/fonts` (read-only).
 
@@ -340,9 +340,9 @@ Every finished clip has an **Edit & reprocess** panel, one button on the clip ca
 
 **Custom fonts**: upload a `.ttf`/`.otf` (e.g. a licensed Stratos) in Settings → Brand assets and it appears in the classic-subtitle and hook font pickers, resolved at burn time from the writable `data/fonts/` dir alongside the bundled faces.
 
-Editing is staged: nothing runs while you toggle. **Apply & reprocess** re-renders the framing (only when the reframe mode changed) and then composes the active layers in one pass via `/api/compose/{job_id}/{clip_index}`: order is **Grade → Subtitles → Smart Cut → Hook → Logo** (grade first so the overlays keep their authored colour; subtitles burn next so their absolute timing never drifts when Smart Cut removes silences; the logo sits on top of everything). Adjacent layers are fused into shared ffmpeg passes (grade+subtitles in one, hook+logo in one), so a fully-toggled compose is 3 encodes instead of 5 — noticeably faster downloads with zero quality change. Reprocessing runs in the **background**: Apply closes the modal immediately and the clip card shows a *Reprocessing…* overlay, so you can edit other clips meanwhile. The preview updates to the composed result, and downloading runs the same compose, so what you see is what you get. Downloaded clips are named after the AI-suggested title (sanitized for Windows: forbidden characters and reserved device names are stripped, length-capped, falling back to `clip_N`).
+Editing is staged: nothing runs while you toggle. **Apply & reprocess** re-renders the framing (only when the reframe mode changed) and then composes the active layers in one pass via `/api/compose/{job_id}/{clip_index}`: order is **Grade → Subtitles → Smart Cut → Hook → Logo** (grade first so the overlays keep their authored colour; subtitles burn next so their absolute timing never drifts when Smart Cut removes silences; the logo sits on top of everything). Adjacent layers are fused into shared ffmpeg passes (grade+subtitles in one, hook+logo in one), so a fully-toggled compose is 3 encodes instead of 5 — noticeably faster downloads with zero quality change. Reprocessing runs in the **background**: Apply closes the modal immediately and the clip card shows a _Reprocessing…_ overlay, so you can edit other clips meanwhile. The preview updates to the composed result, and downloading runs the same compose, so what you see is what you get. Downloaded clips are named after the AI-suggested title (sanitized for Windows: forbidden characters and reserved device names are stripped, length-capped, falling back to `clip_N`).
 
-**Apply runs in the background.** Hitting Apply closes the modal immediately and the reframe/compose work runs without blocking the page, the clip card shows a *Reprocessing…* overlay while it renders, and you can edit, reprocess, and publish other clips at the same time. Each clip is an independent job, so several can render at once.
+**Apply runs in the background.** Hitting Apply closes the modal immediately and the reframe/compose work runs without blocking the page, the clip card shows a _Reprocessing…_ overlay while it renders, and you can edit, reprocess, and publish other clips at the same time. Each clip is an independent job, so several can render at once.
 
 ---
 
@@ -357,14 +357,14 @@ Pick one of three modes per job (and per clip after the fact, from the **Edit & 
 Inside **Auto**, three per-scene strategies are decided by sampling 7 frames per scene:
 
 - **TRACK**: a single, near-static speaker → a crop locked on the face. The camera holds still; it does not pan around with the subject. (`SpeakerTracker` MAR-variance selection and `SmoothedCameraman` still run in pass 1 to find the face; the static policy then pins the shot.)
-- **WIDE**: two or more faces in the scene, *or* a single subject that moves too far to hold without panning → a locked, zoomed-out crop that keeps everyone in frame with no camera motion. Movement is measured by how far the primary face travels across the sampled frames (`REFRAME_MOTION_WIDE_THRESH`, default 0.12 of the frame); past that, chasing the subject would cause the exact motion we're trying to avoid, so we pull back instead.
+- **WIDE**: two or more faces in the scene, _or_ a single subject that moves too far to hold without panning → a locked, zoomed-out crop that keeps everyone in frame with no camera motion. Movement is measured by how far the primary face travels across the sampled frames (`REFRAME_MOTION_WIDE_THRESH`, default 0.12 of the frame); past that, chasing the subject would cause the exact motion we're trying to avoid, so we pull back instead.
 - **GENERAL**: no faces → letterbox.
 
-**Static framing (`REFRAME_STATIC_AUTO`, default on):** the rule that ties the strategies together is that the camera never moves *within* a shot. Each scene collapses to a single fixed crop, TRACK locks on the face (zoom capped so it's framed, not shoved in your face), WIDE locks zoomed-out between the faces. Zoom can still change *across* a cut, which reads as a new shot rather than camera motion. This is the deterministic end-state of comfort mode; set `REFRAME_STATIC_AUTO=0` to go back to the eased-but-moving Savitzky-Golay smoother. The decision math (`centroid_span`, `collapse_scene_targets`) is pure and host-tested.
+**Static framing (`REFRAME_STATIC_AUTO`, default on):** the rule that ties the strategies together is that the camera never moves _within_ a shot. Each scene collapses to a single fixed crop, TRACK locks on the face (zoom capped so it's framed, not shoved in your face), WIDE locks zoomed-out between the faces. Zoom can still change _across_ a cut, which reads as a new shot rather than camera motion. This is the deterministic end-state of comfort mode; set `REFRAME_STATIC_AUTO=0` to go back to the eased-but-moving Savitzky-Golay smoother. The decision math (`centroid_span`, `collapse_scene_targets`) is pure and host-tested.
 
 **Lost-subject recovery:** in TRACK/WIDE, if no speaker is detected for `REFRAME_LOST_HOLD` frames (~3 s) the camera eases back to the source center and gently zooms out instead of freezing on empty space. The active-speaker camera can optionally use a 1€ adaptive filter (`REFRAME_SMOOTHER=euro`) or a momentum/damped-spring smoother (`REFRAME_SMOOTHER=spring`) in place of the default two-speed EMA, with an optional hard pan-rate cap (`REFRAME_MAX_STEP_PX`). The pure decision math lives in the cv2-free, host-tested `clippyme.pipeline.reframe_ops` module; ffprobe-backed A/V-sync helpers (VFR detection, stream `start_time`, fps reconcile) live alongside in `media_probe.py`.
 
-**Comfort mode (`REFRAME_COMFORT`, default on):** continuous face-tracking is what makes auto-reframes feel like seasickness, the camera is always gently moving, and the changing velocity (plus a zoom that breathes mid-shot) is the actual nausea trigger, not pixel jitter. So the default render now biases toward a *still* camera the way [AutoFlip](https://research.google/blog/autoflip-an-open-source-framework-for-intelligent-video-reframing/) does: a two-pass global trajectory smoother Savitzky-Golay-smooths the whole camera path per scene (the alternative `REFRAME_GLOBAL_METHOD=kalman`/`l2` pan-path solvers are reachable only with `REFRAME_STATIC_AUTO=0` — the default static-auto policy collapses each scene to a single locked crop before they would run), a per-scene **stationary lock** (`REFRAME_STATIONARY_THRESH`, default `0.30`) pins near-static scenes to a locked tripod (with `REFRAME_SNAP_CENTER`), and **per-scene zoom lock** (`REFRAME_ZOOM_LOCK`) holds one zoom level per shot so the frame never breathes. It costs a second video decode; set `REFRAME_COMFORT=0` to fall back to the original single-pass streaming tracker. See [`docs/reframe-improvements-research.md`](docs/reframe-improvements-research.md) for the measured comparison.
+**Comfort mode (`REFRAME_COMFORT`, default on):** continuous face-tracking is what makes auto-reframes feel like seasickness, the camera is always gently moving, and the changing velocity (plus a zoom that breathes mid-shot) is the actual nausea trigger, not pixel jitter. So the default render now biases toward a _still_ camera the way [AutoFlip](https://research.google/blog/autoflip-an-open-source-framework-for-intelligent-video-reframing/) does: a two-pass global trajectory smoother Savitzky-Golay-smooths the whole camera path per scene (the alternative `REFRAME_GLOBAL_METHOD=kalman`/`l2` pan-path solvers are reachable only with `REFRAME_STATIC_AUTO=0` — the default static-auto policy collapses each scene to a single locked crop before they would run), a per-scene **stationary lock** (`REFRAME_STATIONARY_THRESH`, default `0.30`) pins near-static scenes to a locked tripod (with `REFRAME_SNAP_CENTER`), and **per-scene zoom lock** (`REFRAME_ZOOM_LOCK`) holds one zoom level per shot so the frame never breathes. It costs a second video decode; set `REFRAME_COMFORT=0` to fall back to the original single-pass streaming tracker. See [`docs/reframe-improvements-research.md`](docs/reframe-improvements-research.md) for the measured comparison.
 
 Override per job with `--reframe-mode auto|subject|disabled` (`subject` = the FrameShift face-first crop above, with `object` accepted as a legacy alias; `disabled` = 4:3 center crop with black bars).
 
@@ -389,10 +389,10 @@ The dashboard's unified `PublishModal` publishes the selected clips concurrently
 The **Live Monitor** tab watches a channel and turns its content into published shorts hands-free. Multiple monitors run in parallel (one per platform+channel), state survives restarts (`data/live_monitor.json`).
 
 - **Platforms & modes**: **Kick** and **Twitch** in `live` mode (real-time: capture the ongoing stream in 30-min segments, clip each segment, auto-publish) or `vod` mode (process each new VOD as it's uploaded); **YouTube** watches the channel's long-form uploads via RSS (Shorts structurally excluded) and clips every new video from activation onward.
-- **Prelive skip**: the first 30 minutes of every stream (configurable) are skipped — anchored to the *stream's* start time, so a monitor started mid-stream doesn't wait a redundant window.
+- **Prelive skip**: the first 30 minutes of every stream (configurable) are skipped — anchored to the _stream's_ start time, so a monitor started mid-stream doesn't wait a redundant window.
 - **Backfill**: starting a monitor on a channel that's already been live for hours doesn't lose the past. On **Twitch** the missed span is range-downloaded from the in-progress archive VOD (matched by `stream_id`) in parallel with the forward capture. **Kick** publishes no VOD until the stream ends, so missed windows are recorded and recovered from the replay right after the live finishes. Requires the streamer to have past-broadcast storage enabled.
 - **Auto layout**: monitor clips default to reframe off (letterbox), full-clip hook on top, attribution banner attached under the video band, left-aligned subtitles below — all overridable per monitor.
-- **Publishing**: no daily cap, but a global ≥15-minute gap between posts across *all* monitors; `{title}`/`{hook}` placeholders in the title/caption templates; optional per-monitor AI instructions feed the Gemini prompt.
+- **Publishing**: no daily cap, but a global ≥15-minute gap between posts across _all_ monitors; `{title}`/`{hook}` placeholders in the title/caption templates; optional per-monitor AI instructions feed the Gemini prompt.
 
 ---
 

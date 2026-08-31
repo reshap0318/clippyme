@@ -101,7 +101,7 @@ def load_zernio_config() -> dict:
     return {
         "api_key": zernio.get("api_key", ""),
         "accounts": accounts if isinstance(accounts, dict) else {},
-        "timezone": zernio.get("timezone", "Europe/Rome"),
+        "timezone": zernio.get("timezone", "Asia/Jakarta"),
     }
 
 
@@ -141,7 +141,7 @@ def zernio_config_status() -> dict:
         "configured": bool(api_key),
         "api_key_masked": masked,
         "accounts": cfg.get("accounts", {}),
-        "timezone": cfg.get("timezone", "Europe/Rome"),
+        "timezone": cfg.get("timezone", "Asia/Jakarta"),
     }
 
 

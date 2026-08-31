@@ -220,7 +220,7 @@ def test_validate_config_defaults():
     assert cfg["min_gap_seconds"] == 900
     assert cfg["poll_interval"] == 60
     assert cfg["loop"] is False
-    assert cfg["timezone"] == "Europe/Rome"
+    assert cfg["timezone"] == "Asia/Jakarta"
 
 
 def test_validate_config_lowercases_and_bounds():
@@ -938,7 +938,7 @@ def test_publish_one_retries_on_429_then_succeeds(tmp_path, monkeypatch):
                       output_dir=str(tmp_path))
     mon.cfg = {"title_template": "{title}", "caption_template": "{hook}",
                "platforms": [{"platform": "tiktok", "accountId": "a"}],
-               "timezone": "Europe/Rome"}
+               "timezone": "Asia/Jakarta"}
     mon._zernio_key = "sk_test"
     clip = {"video_url": "/videos/job1/c.mp4", "title": "T", "viral_hook_text": "H"}
     entry = {"job_id": "job1", "clip": clip, "composed_path": str(job_dir / "c.mp4")}
@@ -977,7 +977,7 @@ def test_publish_one_rolls_start_date_on_daily_limit(tmp_path, monkeypatch):
                       output_dir=str(tmp_path))
     mon.cfg = {"title_template": "{title}", "caption_template": "{hook}",
                "platforms": [{"platform": "tiktok", "accountId": "a"}],
-               "timezone": "Europe/Rome"}
+               "timezone": "Asia/Jakarta"}
     mon._zernio_key = "sk_test"
     clip = {"video_url": "/videos/job1/c.mp4", "title": "T", "viral_hook_text": "H"}
     entry = {"job_id": "job1", "clip": clip, "composed_path": str(job_dir / "c.mp4")}
@@ -1013,7 +1013,7 @@ def test_publish_one_non_429_fails_without_retry(tmp_path, monkeypatch):
                       output_dir=str(tmp_path))
     mon.cfg = {"title_template": "{title}", "caption_template": "{hook}",
                "platforms": [{"platform": "tiktok", "accountId": "a"}],
-               "timezone": "Europe/Rome"}
+               "timezone": "Asia/Jakarta"}
     mon._zernio_key = "sk_test"
     clip = {"video_url": "/videos/job1/c.mp4", "title": "T", "viral_hook_text": "H"}
     entry = {"job_id": "job1", "clip": clip, "composed_path": str(job_dir / "c.mp4")}
@@ -1038,7 +1038,7 @@ def _publishing_monitor(tmp_path, monkeypatch, *, jobs=None):
                       job_queue=None, output_dir=str(tmp_path))
     mon.cfg = {"title_template": "{title}", "caption_template": "{hook}",
                "platforms": [{"platform": "tiktok", "accountId": "a"}],
-               "timezone": "Europe/Rome"}
+               "timezone": "Asia/Jakarta"}
     mon._zernio_key = "sk_test"
 
     # Skip the real ffmpeg compose pass — publish/delete behaviour is what these
