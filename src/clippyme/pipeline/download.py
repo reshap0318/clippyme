@@ -4,10 +4,13 @@ Extracted from ``pipeline.main`` as part of the decomposition. Depends only on
 ``yt_dlp`` + stdlib (no cv2/torch/mediapipe), so it imports and is testable on
 the host.
 """
+import contextlib
+import hashlib
 import ipaddress
 import json
 import os
 import re
+import shutil
 import sys
 import time
 from urllib.parse import urlparse
@@ -15,6 +18,7 @@ from urllib.parse import urlparse
 import yt_dlp
 
 from clippyme.netutil import resolve_host_addresses
+from clippyme.pipeline.transcribe_cache import CACHE_DIR, CACHE_TTL_DAYS
 
 
 # Remote URL jobs are intentionally limited to the platforms ClippyMe actually
@@ -201,6 +205,57 @@ def classify_download_error(msg: str) -> str:
     return "fatal"
 
 
+def _video_cache_paths(url):
+    """Video cache location: same dir/TTL as the transcript cache, keyed by URL."""
+    h = hashlib.sha256(url.encode()).hexdigest()[:16]
+    base = os.path.join(CACHE_DIR, f"{h}_video")
+    return base + ".mp4", base + ".json"
+
+
+def _load_cached_video(url):
+    """Return (video_path, meta_dict) for a fresh cache hit, else None."""
+    video_path, meta_path = _video_cache_paths(url)
+    if not (os.path.exists(video_path) and os.path.exists(meta_path)):
+        return None
+    try:
+        if time.time() - os.path.getmtime(video_path) > CACHE_TTL_DAYS * 86400:
+            for p in (video_path, meta_path):
+                with contextlib.suppress(OSError):
+                    os.remove(p)
+            return None
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        return video_path, meta
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _save_video_cache(url, downloaded_file, sanitized_title, info):
+    """Best-effort: hardlink (fallback copy) the downloaded file into the cache."""
+    video_path, meta_path = _video_cache_paths(url)
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        tmp_video = video_path + ".tmp"
+        try:
+            os.link(downloaded_file, tmp_video)
+        except OSError:
+            shutil.copy2(downloaded_file, tmp_video)
+        os.replace(tmp_video, video_path)
+        meta = {
+            "sanitized_title": sanitized_title,
+            "channel_url": info.get("channel_url") or info.get("uploader_url"),
+            "webpage_url": info.get("webpage_url") or info.get("original_url"),
+            "uploader_id": info.get("uploader_id") or info.get("channel_id"),
+        }
+        tmp_meta = meta_path + ".tmp"
+        with open(tmp_meta, "w", encoding="utf-8") as f:
+            json.dump(meta, f)
+        os.replace(tmp_meta, meta_path)
+        print(f"💾 Video cached ({os.path.basename(video_path)})")
+    except OSError as exc:
+        print(f"⚠️  Failed to cache video: {exc}")
+
+
 SOURCE_INFO_FILENAME = "source_info.json"
 
 
@@ -237,6 +292,24 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
     """
     url = validate_supported_source_url(url)
     _reject_rebound_internal(url)
+
+    cached = _load_cached_video(url)
+    if cached:
+        video_path, meta = cached
+        sanitized_title = meta.get("sanitized_title") or "remote_video"
+        dest = os.path.join(output_dir, f"{sanitized_title}.mp4")
+        try:
+            os.link(video_path, dest)
+        except OSError:
+            shutil.copy2(video_path, dest)
+        _write_source_info(output_dir, {
+            "channel_url": meta.get("channel_url"),
+            "webpage_url": meta.get("webpage_url"),
+            "uploader_id": meta.get("uploader_id"),
+        })
+        print(f"📦 Using cached video ({os.path.basename(video_path)})")
+        return dest, sanitized_title
+
     print(f"🔍 Debug: yt-dlp version: {yt_dlp.version.__version__}")
     print("📥 Downloading remote video...")
     step_start_time = time.time()
@@ -318,6 +391,7 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
                 f"✅ Video downloaded in {step_end_time - step_start_time:.2f}s: "
                 f"{downloaded_file}"
             )
+            _save_video_cache(url, downloaded_file, sanitized_title, info)
             return downloaded_file, sanitized_title
         except Exception as exc:
             last_error = exc

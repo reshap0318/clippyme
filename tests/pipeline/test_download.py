@@ -188,3 +188,44 @@ def test_classify_fatal(msg):
 def test_classify_bot_wall_beats_any_incidental_403():
     msg = "Sign in to confirm you're not a bot (HTTP Error 403)"
     assert dl.classify_download_error(msg) == "fatal"
+
+
+# ── video cache (same dir/TTL as the transcript cache) ────────────────────
+
+def test_video_cache_miss_when_absent(tmp_path, monkeypatch):
+    monkeypatch.setattr(dl, "CACHE_DIR", str(tmp_path))
+    assert dl._load_cached_video("https://www.youtube.com/watch?v=abc") is None
+
+
+def test_video_cache_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setattr(dl, "CACHE_DIR", str(tmp_path))
+    url = "https://www.youtube.com/watch?v=abc"
+    src = tmp_path / "downloaded.mp4"
+    src.write_bytes(b"fake mp4 bytes")
+    info = {"channel_url": "https://youtube.com/@ch", "uploader_id": "ch"}
+
+    dl._save_video_cache(url, str(src), "my_video", info)
+
+    cached = dl._load_cached_video(url)
+    assert cached is not None
+    video_path, meta = cached
+    assert os.path.exists(video_path)
+    assert meta["sanitized_title"] == "my_video"
+    assert meta["channel_url"] == "https://youtube.com/@ch"
+
+
+def test_video_cache_expired_is_pruned(tmp_path, monkeypatch):
+    monkeypatch.setattr(dl, "CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(dl, "CACHE_TTL_DAYS", 7)
+    url = "https://www.youtube.com/watch?v=abc"
+    src = tmp_path / "downloaded.mp4"
+    src.write_bytes(b"fake mp4 bytes")
+    dl._save_video_cache(url, str(src), "my_video", {})
+
+    video_path, meta_path = dl._video_cache_paths(url)
+    old = os.path.getmtime(video_path) - 8 * 86400
+    os.utime(video_path, (old, old))
+
+    assert dl._load_cached_video(url) is None
+    assert not os.path.exists(video_path)
+    assert not os.path.exists(meta_path)
