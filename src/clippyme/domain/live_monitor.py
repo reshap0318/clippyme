@@ -101,8 +101,45 @@ def remaining_prelive(prelive_skip_seconds: int, started_at, now) -> int:
     return max(0, int(prelive_skip_seconds - elapsed))
 
 
-def render_template(template: str, clip: dict) -> str:
-    """Fill ``{title}`` / ``{hook}`` placeholders from a clip dict.
+_HASHTAG_SPLIT_RE = re.compile(r"[\s,]+")
+
+
+def _normalize_hashtag(tag: str) -> str:
+    """Strip to bare alnum text (no leading '#', no punctuation/whitespace)."""
+    return "".join(ch for ch in str(tag or "") if ch.isalnum())
+
+
+def parse_static_hashtags(raw: str) -> list[str]:
+    """Split the free-text 'static hashtags' field into '#tag' entries.
+
+    Accepts space- or comma-separated input, with or without a leading '#'.
+    """
+    if not raw:
+        return []
+    return [f"#{norm}" for piece in _HASHTAG_SPLIT_RE.split(raw)
+            if (norm := _normalize_hashtag(piece))]
+
+
+def combine_hashtags(ai_tags, static_tags) -> list[str]:
+    """Merge AI-generated + static hashtags, case-insensitive deduped.
+
+    AI tags come first (Gemini's are clip-specific), static tags are appended
+    after — a static tag already covered by an AI tag is dropped rather than
+    posted twice.
+    """
+    seen = set()
+    out = []
+    for tag in list(ai_tags or []) + list(static_tags or []):
+        norm = _normalize_hashtag(tag)
+        if not norm or norm.lower() in seen:
+            continue
+        seen.add(norm.lower())
+        out.append(f"#{norm}")
+    return out
+
+
+def render_template(template: str, clip: dict, hashtags: str = "") -> str:
+    """Fill ``{title}`` / ``{hook}`` / ``{hashtags}`` placeholders from a clip dict.
 
     Unknown placeholders (or a malformed template) fall back to the raw string
     so a bad template can never crash the publish path.
@@ -114,6 +151,7 @@ def render_template(template: str, clip: dict) -> str:
             title=(clip.get("video_title_for_youtube_short")
                    or clip.get("title") or ""),
             hook=clip.get("viral_hook_text", "") or "",
+            hashtags=hashtags,
         )
     except (KeyError, IndexError, ValueError):
         return template
@@ -243,6 +281,15 @@ def _validate_bool(value, field: str) -> bool:
     return value
 
 
+def _validate_reframe_mode(value) -> str:
+    mode = str(value or "disabled").strip().lower()
+    if mode == "object":  # legacy alias, mirrors ProcessRequest.reframe_mode
+        mode = "subject"
+    if mode not in ("auto", "subject", "disabled"):
+        raise ValidationError("reframe_mode must be 'auto', 'subject' or 'disabled'")
+    return mode
+
+
 def validate_monitor_config(config: dict, default_timezone: str = "Asia/Jakarta") -> dict:
     """Coerce + bound a raw start payload into the monitor's config dict.
 
@@ -275,7 +322,7 @@ def validate_monitor_config(config: dict, default_timezone: str = "Asia/Jakarta"
         return max(lo, min(hi, n))
 
     # vod feeds lag minutes→hours; live wants a fast go-live poll.
-    default_poll = 600 if mode == "vod" else 60
+    default_poll = 3600 if mode == "vod" else 60
     return {
         "platform": platform,
         "mode": mode,
@@ -323,9 +370,22 @@ def validate_monitor_config(config: dict, default_timezone: str = "Asia/Jakarta"
         # publishing. Off by default: it re-renders each clip, and a stream
         # segment with clean pacing gains nothing from it.
         "smart_cut": _validate_bool(config.get("smart_cut", False), "smart_cut"),
-        # Fixed zoom on the letterbox render (monitors always run reframe
-        # 'disabled'). 0 = whole frame between the bars, else 0.05-0.15.
+        # Fixed zoom on the letterbox render — only applied when reframe_mode
+        # stays 'disabled'. 0 = whole frame between the bars, else 0.05-0.15.
         "letterbox_zoom": _letterbox_zoom_or_zero(config.get("letterbox_zoom")),
+        # 'disabled' (default) keeps the monitor's original letterbox layout;
+        # 'auto'/'subject' hand off to the same face-track/FrameShift crop the
+        # manual create flow uses — compose.py already keys hook duration,
+        # banner attach mode and caption band position off this per-clip.
+        "reframe_mode": _validate_reframe_mode(config.get("reframe_mode")),
+        # Gemini always returns per-clip hashtags now (schemas.ViralClip); this
+        # just gates whether the {hashtags} template placeholder includes them.
+        # Off by default so a bare {hashtags} in an existing caption template
+        # doesn't suddenly start posting AI text nobody opted into.
+        "ai_hashtags": _validate_bool(config.get("ai_hashtags", False), "ai_hashtags"),
+        # Free-text hashtags always appended after the AI ones (deduped case-
+        # insensitively) regardless of the ai_hashtags toggle.
+        "static_hashtags": str(config.get("static_hashtags") or "")[:500],
     }
 
 
@@ -336,7 +396,8 @@ _UPDATABLE_CONFIG_FIELDS = (
     "instructions", "caption_template", "title_template", "min_gap_seconds",
     "segment_seconds", "prelive_skip_seconds", "platforms", "banner", "compose",
     "poll_interval", "delete_after_publish", "max_clips", "clip_selection",
-    "min_viral_score", "smart_cut", "letterbox_zoom",
+    "min_viral_score", "smart_cut", "letterbox_zoom", "reframe_mode",
+    "ai_hashtags", "static_hashtags",
 )
 
 # The full set of cfg keys worth persisting/restoring (mirrors
@@ -347,6 +408,7 @@ _SNAPSHOT_CONFIG_FIELDS = (
     "instructions", "caption_template", "title_template", "timezone",
     "banner", "compose", "catchup", "delete_after_publish", "max_clips",
     "clip_selection", "min_viral_score", "smart_cut", "letterbox_zoom",
+    "reframe_mode", "ai_hashtags", "static_hashtags",
 )
 
 
@@ -1169,11 +1231,9 @@ class LiveMonitor:
         from clippyme.domain.job_submission import submit_job
 
         job_id, job_dir, env = self._new_job_dir()
-        # Letterbox (reframe disabled): the monitor recipe places a hook in the
-        # top bar, the attribution banner attached under the video band, and
-        # subtitles below it — all of which need the un-reframed 9:16 layout.
+        reframe_mode = self.cfg.get("reframe_mode") or "disabled"
         cmd = build_main_cmd(input_path=os.path.abspath(seg_path), output_dir=job_dir,
-                             reframe_mode="disabled",
+                             reframe_mode=reframe_mode,
                              letterbox_zoom=self.cfg.get("letterbox_zoom") or 0,
                              instructions=self.cfg.get("instructions") or None,
                              monitor=True)
@@ -1201,7 +1261,7 @@ class LiveMonitor:
         job_id, job_dir, env = self._new_job_dir()
         cookies_path = os.path.join("data", "cookies.txt")
         cmd = build_main_cmd(url=url, output_dir=job_dir, cookies_path=cookies_path,
-                             reframe_mode="disabled",
+                             reframe_mode=self.cfg.get("reframe_mode") or "disabled",
                              letterbox_zoom=self.cfg.get("letterbox_zoom") or 0,
                              start_offset=self._vod_start_offset(),
                              instructions=self.cfg.get("instructions") or None,
@@ -1333,8 +1393,11 @@ class LiveMonitor:
             # Restored pending entry whose composed file vanished → recompose.
             upload_path = await self._compose_for_publish(job_id, clip)
 
-        title = render_template(self.cfg["title_template"], clip) or clip.get("title") or "Clip"
-        caption = render_template(self.cfg["caption_template"], clip)
+        hashtags = " ".join(combine_hashtags(
+            clip.get("hashtags") if self.cfg.get("ai_hashtags") else None,
+            parse_static_hashtags(self.cfg.get("static_hashtags", ""))))
+        title = render_template(self.cfg["title_template"], clip, hashtags=hashtags) or clip.get("title") or "Clip"
+        caption = render_template(self.cfg["caption_template"], clip, hashtags=hashtags)
         # Serialise publishes GLOBALLY (shared lock) so the shared scheduler's
         # picked_slots list (mutated inside publish_clip's worker thread) stays
         # race-free across every monitor.

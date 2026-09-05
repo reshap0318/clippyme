@@ -103,6 +103,11 @@ function MonitorSettings({ monitor, onApply, applying }) {
   const [smartCutTouched, setSmartCutTouched] = useState(false);
   const [zoom, setZoom] = useState(zoomToPercent(cfg.letterbox_zoom));
   const [zoomTouched, setZoomTouched] = useState(false);
+  const [reframeMode, setReframeMode] = useState(cfg.reframe_mode === 'object' ? 'subject' : (cfg.reframe_mode || 'disabled'));
+  const [reframeModeTouched, setReframeModeTouched] = useState(false);
+  const [aiHashtags, setAiHashtags] = useState(!!cfg.ai_hashtags);
+  const [aiHashtagsTouched, setAiHashtagsTouched] = useState(false);
+  const [staticHashtags, setStaticHashtags] = useState(cfg.static_hashtags || '');
 
   const apply = () => {
     const partial = {};
@@ -120,6 +125,9 @@ function MonitorSettings({ monitor, onApply, applying }) {
     if (minScore !== '') partial.min_viral_score = bounded.min_viral_score;
     if (smartCutTouched) partial.smart_cut = smartCut;
     if (zoomTouched) partial.letterbox_zoom = zoom;
+    if (reframeModeTouched) partial.reframe_mode = reframeMode;
+    if (aiHashtagsTouched) partial.ai_hashtags = aiHashtags;
+    if (staticHashtags.trim()) partial.static_hashtags = staticHashtags.trim();
     onApply(monitor.id, partial);
   };
 
@@ -140,6 +148,18 @@ function MonitorSettings({ monitor, onApply, applying }) {
         <span className="field-label">Caption template</span>
         <input className="key-input" style={{ width: '100%' }} aria-label={`Settings caption template ${monitor.id}`}
           value={captionTemplate} onChange={(e) => setCaptionTemplate(e.target.value)} />
+        <div className="od">Placeholders: {'{title} {hook} {hashtags}'}</div>
+      </div>
+      <div className="opt" style={{ borderBottom: 0, paddingLeft: 0, paddingRight: 0 }}>
+        <div className="otxt"><div className="ot">AI hashtags</div><div className="od">Include Gemini&apos;s per-clip hashtags in {'{hashtags}'}</div></div>
+        <Switch on={aiHashtags} label={`AI hashtags ${monitor.id}`}
+          onChange={(on) => { setAiHashtags(on); setAiHashtagsTouched(true); }} />
+      </div>
+      <div className="field">
+        <span className="field-label">Static hashtags</span>
+        <input className="key-input" style={{ width: '100%' }} aria-label={`Settings static hashtags ${monitor.id}`}
+          placeholder="#kick #clips" value={staticHashtags} onChange={(e) => setStaticHashtags(e.target.value)} />
+        <div className="od">Always appended to {'{hashtags}'}, duplicates with AI ones dropped.</div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 10 }}>
         <label className="field">
@@ -190,11 +210,19 @@ function MonitorSettings({ monitor, onApply, applying }) {
           onChange={(on) => { setSmartCut(on); setSmartCutTouched(true); }} />
       </div>
       <div className="field">
-        <span className="field-label">Letterbox zoom ({zoom ? `${zoom}%` : 'off'})</span>
-        <Segmented full value={String(zoom)}
-          onChange={(v) => { setZoom(Number(v)); setZoomTouched(true); }}
-          options={ZOOM_OPTIONS} />
+        <span className="field-label">Reframe</span>
+        <Segmented full value={reframeMode}
+          onChange={(v) => { setReframeMode(v); setReframeModeTouched(true); }}
+          options={[{ id: 'auto', label: 'Auto' }, { id: 'subject', label: 'Subject' }, { id: 'disabled', label: 'Off' }]} />
       </div>
+      {reframeMode === 'disabled' && (
+        <div className="field">
+          <span className="field-label">Letterbox zoom ({zoom ? `${zoom}%` : 'off'})</span>
+          <Segmented full value={String(zoom)}
+            onChange={(v) => { setZoom(Number(v)); setZoomTouched(true); }}
+            options={ZOOM_OPTIONS} />
+        </div>
+      )}
       <div className="opt" style={{ borderBottom: 0, paddingLeft: 0, paddingRight: 0 }}>
         <div className="otxt"><div className="ot">Delete clip after publish</div><div className="od">Frees disk once a clip is confirmed published</div></div>
         <Switch on={deleteAfterPublish} label={`Delete after publish ${monitor.id}`}
@@ -283,7 +311,10 @@ export function LiveMonitorView({ pushToast }) {
   const [maxClips, setMaxClips] = useState(5);
   const [minScore, setMinScore] = useState(70);
   const [smartCut, setSmartCut] = useState(false);
+  const [reframeMode, setReframeMode] = useState('disabled');
   const [zoom, setZoom] = useState(0);
+  const [aiHashtags, setAiHashtags] = useState(false);
+  const [staticHashtags, setStaticHashtags] = useState('');
   const [subOn, setSubOn] = useState(false);
   const [sub, setSub] = useState(SUB_DEFAULTS);
   const [starting, setStarting] = useState(false);
@@ -320,7 +351,10 @@ export function LiveMonitorView({ pushToast }) {
         loop,
         catchup,
         smart_cut: smartCut,
+        reframe_mode: reframeMode,
         letterbox_zoom: zoom,
+        ai_hashtags: aiHashtags,
+        static_hashtags: staticHashtags,
         caption_template: captionTemplate,
         title_template: titleTemplate,
         instructions,
@@ -486,14 +520,23 @@ export function LiveMonitorView({ pushToast }) {
         </div>
 
         <div className="field">
-          <span className="field-label">Letterbox zoom</span>
-          <Segmented full value={String(zoom)} onChange={(v) => setZoom(Number(v))} options={ZOOM_OPTIONS} />
-          <div className="od">
-            {zoom
-              ? `Crops ${zoom}% off the sides — bigger picture, smaller black bars.`
-              : 'Whole frame between the black bars, nothing cropped.'}
-          </div>
+          <span className="field-label">Reframe</span>
+          <Segmented full value={reframeMode} onChange={setReframeMode}
+            options={[{ id: 'auto', label: 'Auto' }, { id: 'subject', label: 'Subject' }, { id: 'disabled', label: 'Off' }]} />
+          <div className="od">Auto face-track · Subject FrameShift crop · Off letterbox bands.</div>
         </div>
+
+        {reframeMode === 'disabled' && (
+          <div className="field">
+            <span className="field-label">Letterbox zoom</span>
+            <Segmented full value={String(zoom)} onChange={(v) => setZoom(Number(v))} options={ZOOM_OPTIONS} />
+            <div className="od">
+              {zoom
+                ? `Crops ${zoom}% off the sides — bigger picture, smaller black bars.`
+                : 'Whole frame between the black bars, nothing cropped.'}
+            </div>
+          </div>
+        )}
 
         <div className="opt" style={{ paddingLeft: 0, paddingRight: 0 }}>
           <div className="otxt">
@@ -573,6 +616,21 @@ export function LiveMonitorView({ pushToast }) {
           <span className="field-label">Caption template (optional)</span>
           <textarea className="ta" rows="2" aria-label="Caption template" placeholder="{hook}"
             value={captionTemplate} onChange={(e) => setCaptionTemplate(e.target.value)}></textarea>
+          <div className="od">Placeholders: {'{title} {hook} {hashtags}'}</div>
+        </div>
+
+        <div className="opt" style={{ paddingLeft: 0, paddingRight: 0 }}>
+          <div className="otxt">
+            <div className="ot">AI hashtags</div>
+            <div className="od">Gemini writes 3-5 hashtags per clip; on = include them in {'{hashtags}'}</div>
+          </div>
+          <Switch on={aiHashtags} onChange={setAiHashtags} label="AI hashtags" />
+        </div>
+        <div className="field">
+          <span className="field-label">Static hashtags (optional)</span>
+          <input className="key-input" style={{ width: '100%' }} aria-label="Static hashtags"
+            placeholder="#kick #clips" value={staticHashtags} onChange={(e) => setStaticHashtags(e.target.value)} />
+          <div className="od">Always appended to {'{hashtags}'}, duplicates with AI ones dropped.</div>
         </div>
         </Group>
 

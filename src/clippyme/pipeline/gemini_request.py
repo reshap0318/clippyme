@@ -261,7 +261,8 @@ Output schema:
       "video_description_for_tiktok": "<TikTok description, ends with a genuine question or a debatable opinion — never mechanical engagement bait>",
       "video_description_for_instagram": "<Instagram description, ends with a genuine question or a debatable opinion — never mechanical engagement bait>",
       "video_title_for_youtube_short": "<max 100 chars, engagement-first bait per TITLE & CAPTION COPY — stakes/speculation/comment trigger, grounded in the clip, never a flat summary>",
-      "viral_hook_text": "<REQUIRED, 3-8 words, scroll-stopping overlay copy — NOT a transcript quote. Use curiosity gap, POV, counter-claim, question, number, or warning pattern. Same language as transcript.>"
+      "viral_hook_text": "<REQUIRED, 3-8 words, scroll-stopping overlay copy — NOT a transcript quote. Use curiosity gap, POV, counter-claim, question, number, or warning pattern. Same language as transcript.>",
+      "hashtags": ["<REQUIRED, 3-5 hashtags WITHOUT the '#', lowercase, specific to this clip's topic/person/moment — never generic filler like 'fyp' or 'viral'>"]
     }}
   ]
 }}
@@ -516,7 +517,8 @@ def build_reformat_prompt(err_msg: str, broken_text: str) -> str:
         '"video_description_for_tiktok": "<str>", '
         '"video_description_for_instagram": "<str>", '
         '"video_title_for_youtube_short": "<str>", '
-        '"viral_hook_text": "<str>"}]}\n\n'
+        '"viral_hook_text": "<str>", '
+        '"hashtags": ["<str>"]}]}\n\n'
         "Rules: straight double quotes only, no trailing commas, no markdown, "
         "no code fences, no prose before or after. Escape every backslash as \\\\."
     )

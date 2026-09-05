@@ -123,7 +123,10 @@ test('AI instructions field is included in the start payload', async () => {
 test('banner Off sends {enabled:false}', async () => {
   const { startLiveMonitor } = await import('./realApi');
   render(<LiveMonitorView />);
-  fireEvent.click(screen.getByRole('button', { name: 'Off' }));
+  // Both the Reframe and Attribution banner Segmented controls have an "Off"
+  // option; the banner one renders last.
+  const offBtns = screen.getAllByRole('button', { name: 'Off' });
+  fireEvent.click(offBtns[offBtns.length - 1]);
   fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
   await waitFor(() => expect(screen.getByRole('button', { name: /Start monitor/ })).not.toBeDisabled());
   fireEvent.click(screen.getByRole('button', { name: /Start monitor/ }));

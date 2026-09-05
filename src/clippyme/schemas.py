@@ -86,6 +86,29 @@ class ViralClip(BaseModel):
     # trim during normalization anyway.
     video_title_for_youtube_short: str = Field("", max_length=110)
     viral_hook_text: str = Field("", max_length=160)
+    # 3-5 hashtags relevant to this specific clip, always requested from
+    # Gemini (unconditional — unlike title/hook copy, hashtags aren't part
+    # of the engagement-bait policy this prompt otherwise avoids). Consumers
+    # decide whether/where to use them (e.g. live_monitor's ai_hashtags
+    # toggle); an empty list here just means Gemini returned none.
+    hashtags: list[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("hashtags", mode="before")
+    @classmethod
+    def _sanitize_hashtags(cls, v):
+        if not isinstance(v, list):
+            return []
+        seen = set()
+        out = []
+        for raw in v:
+            tag = "".join(ch for ch in str(raw or "") if ch.isalnum()).strip()
+            if not tag or tag.lower() in seen:
+                continue
+            seen.add(tag.lower())
+            out.append(f"#{tag[:40]}")
+            if len(out) >= 8:
+                break
+        return out
 
     @field_validator(
         "viral_reason",

@@ -396,7 +396,13 @@ class LiveMonitorStartRequest(BaseModel):
     # Burn Smart Cut (silence/filler removal) into every auto-published clip.
     smart_cut: bool = False
     # Fixed zoom on the monitor's letterbox render (percent; 0 = whole frame).
+    # Only meaningful when reframe_mode == "disabled".
     letterbox_zoom: float = Field(0, ge=0, le=15)
+    reframe_mode: str = Field("disabled", pattern=r"^(auto|disabled|subject|object)$")
+    # Whether {hashtags} in title/caption templates includes Gemini's
+    # per-clip hashtags; static_hashtags are appended regardless (deduped).
+    ai_hashtags: bool = False
+    static_hashtags: str = Field("", max_length=500)
 
     @field_validator("timezone")
     @classmethod

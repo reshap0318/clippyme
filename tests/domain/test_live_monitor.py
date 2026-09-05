@@ -295,7 +295,7 @@ def test_validate_config_platform_mode_defaults():
 
 def test_validate_config_vod_poll_default():
     cfg = validate_monitor_config(_base_cfg(platform="youtube", mode="vod", slug="@somebody"))
-    assert cfg["poll_interval"] == 600  # vod default
+    assert cfg["poll_interval"] == 3600  # vod default
     assert cfg["channel"] == "@somebody"
 
 
