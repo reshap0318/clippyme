@@ -17,6 +17,15 @@ faster-whisper==1.2.1
 # Capped below 2.0 so an unattended rebuild can't pull a breaking major
 # release of the SDK (gemini_service / gemini_parser depend on the 1.x API).
 google-genai>=1.70.0,<2.0.0
+# Pinned explicitly: mediapipe's generated protos use the pre-5.x
+# MessageFactory.GetPrototype() API, removed in protobuf 5+. pyannote.audio
+# (optional, see below) pulls a newer protobuf via its transitive deps and
+# will upgrade past this pin if installed unpinned, breaking mediapipe with
+# `AttributeError: 'MessageFactory' object has no attribute 'GetPrototype'`
+# for the rest of the process (protobuf's runtime is process-global). If you
+# install pyannote.audio manually, re-run `pip install protobuf==4.25.9`
+# afterward to force this pin back.
+protobuf==4.25.9
 python-dotenv==1.2.2
 mediapipe==0.10.14
 fastapi==0.135.3
@@ -54,7 +63,12 @@ curl-cffi>=0.15,<1.0
 # Optional: speaker diarization via pyannote.audio. main.py:_diarize_with_pyannote
 # imports it lazily and skips with a soft warning if absent, so it is intentionally
 # NOT installed by default (it pulls torchaudio + a gated HF model download).
-# Enable by installing manually: `pip install pyannote.audio` + set HF_TOKEN.
+# Enable by installing manually:
+#   pip install pyannote.audio && pip install protobuf==4.25.9
+# (the second command re-forces the protobuf pin above — pyannote's resolver
+# otherwise upgrades it past what mediapipe supports, breaking every
+# subsequent job on this process; see the protobuf pin comment near
+# google-genai). Set HF_TOKEN to use it.
 # Deepgram's built-in diarization (DEEPGRAM_DIARIZE=true) covers the cloud path.
 #
 # Note: auto-editor is NOT a pip dep. It's installed as a Nim binary

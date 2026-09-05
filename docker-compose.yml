@@ -62,6 +62,10 @@ services:
       # Whisper fallback diarization. Requires ENABLE_WHISPER_DIARIZE=1
       # at build time AND HF_TOKEN set at runtime.
       - WHISPER_DIARIZE=${WHISPER_DIARIZE:-true}
+      # Whisper model override (blank = auto-select by hardware, see
+      # hardware.py). e.g. large-v3-turbo trades a little accuracy for
+      # ~5-8x faster transcription.
+      - WHISPER_MODEL=${WHISPER_MODEL:-}
       # Gemini key is normally passed per-request via the X-Gemini-Key
       # header, but can also be set here for CLI runs that shell into the
       # container directly.

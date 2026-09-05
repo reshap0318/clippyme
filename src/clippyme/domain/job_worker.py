@@ -134,6 +134,8 @@ def make_workers(
                 if os.path.isdir(cache_dir):
                     for filename in os.listdir(cache_dir):
                         cache_path = os.path.join(cache_dir, filename)
+                        if os.path.isdir(cache_path):
+                            continue
                         try:
                             if now - os.path.getmtime(cache_path) > 7 * 86400:
                                 os.remove(cache_path)

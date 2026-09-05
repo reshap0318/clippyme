@@ -185,7 +185,15 @@ def _diarize_with_pyannote(audio_path: str) -> list[tuple[float, float, int]] | 
         return None
 
     try:
+        import warnings
+
         from pyannote.audio import Pipeline as _PyannotePipeline  # type: ignore
+        from pyannote.audio.utils.reproducibility import ReproducibilityWarning
+
+        # Cosmetic: pyannote deliberately disables TF32 for reproducibility
+        # and warns about it every run. We want that behavior, just not the
+        # noise — silence the warning without changing the TF32 setting.
+        warnings.filterwarnings("ignore", category=ReproducibilityWarning)
     except ImportError:
         print(
             "   ⚠️  Whisper diarization skipped: pyannote.audio not installed. "
@@ -193,13 +201,24 @@ def _diarize_with_pyannote(audio_path: str) -> list[tuple[float, float, int]] | 
             "pyannote/speaker-diarization-3.1 license on Hugging Face."
         )
         return None
+    except Exception as exc:  # noqa: BLE001 — pyannote's import can also fail
+        # with a protobuf version conflict: pyannote's transitive deps pull a
+        # newer protobuf than mediapipe's generated protos support (removed
+        # MessageFactory.GetPrototype API). Protobuf's runtime is
+        # process-global, so once loaded wrong it breaks mediapipe (reframe/
+        # face tracking) for the rest of the process, not just diarization.
+        # The image build pins protobuf back down after installing pyannote
+        # (see requirements.txt/Dockerfile) so this should be rare; treat any
+        # failure here as skip, not crash, either way.
+        print(f"   ⚠️  Whisper diarization skipped: pyannote.audio failed to import ({exc}).")
+        return None
 
     try:
         print("   🗣️  Running pyannote speaker diarization (may take a while)…")
         t0 = time.time()
         pipeline = _PyannotePipeline.from_pretrained(
             "pyannote/speaker-diarization-3.1",
-            use_auth_token=hf_token,
+            token=hf_token,
         )
         if CUDA_AVAILABLE:
             try:
@@ -208,6 +227,9 @@ def _diarize_with_pyannote(audio_path: str) -> list[tuple[float, float, int]] | 
             except Exception:  # noqa: BLE001
                 pass
         diarization = pipeline(audio_path)
+        # pyannote.audio 4.x wraps the Annotation in a DiarizeOutput dataclass
+        # (.speaker_diarization); 3.1 returned the Annotation directly.
+        diarization = getattr(diarization, "speaker_diarization", diarization)
     except Exception as exc:  # noqa: BLE001 — any pyannote failure is non-fatal
         print(f"   ⚠️  Whisper diarization failed ({exc}); continuing without speakers.")
         return None

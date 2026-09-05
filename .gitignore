@@ -72,3 +72,6 @@ fonts/NotoColorEmoji.ttf
 
 # Local Codex CLI settings
 .codex/
+
+# NVIDIA CUDA compute cache (local CUDA runs)
+.nv/

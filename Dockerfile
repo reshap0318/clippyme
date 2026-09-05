@@ -99,6 +99,21 @@ ENV PATH=/app/data/bin:$PATH
 # torchaudio extras) and requires accepting the pyannote/speaker-diarization-3.1
 # license on HuggingFace, so we keep it out of the default image.
 # Build with:   docker compose build --build-arg ENABLE_WHISPER_DIARIZE=1
+#
+# Known pyannote transitive-dep conflicts, all fixed below — pyannote's
+# resolver pulls newer CUDA-13-targeted packages that this image's base
+# CUDA 12.3 toolkit doesn't register on the linker path:
+# - pulls a protobuf newer than mediapipe's generated protos support
+#   (removed MessageFactory.GetPrototype API) -> re-pin protobuf after.
+# - pulls torchcodec unpinned, whose default wheel targets CUDA 13
+#   (needs libnvrtc.so.13). Force the CPU build instead — diarization
+#   only uses torchcodec to decode the WAV, not for GPU inference, so
+#   CPU is free.
+# - the CUDA-13 nvidia-* pip packages it pulls (for on-the-fly kernel
+#   compilation via NVRTC, used by pyannote's embedding/clustering model)
+#   land under site-packages/nvidia/cu13/lib but are never added to the
+#   linker path (only cu12 cublas/cudnn are, above) -> register that dir
+#   too so `libnvrtc-builtins.so.13.0` resolves at runtime.
 ARG GPU_RUNTIME
 ARG ENABLE_WHISPER_DIARIZE=0
 # Install from the fully-pinned core lock plus the explicitly pinned auxiliary
@@ -117,7 +132,14 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         ldconfig 2>/dev/null || true; \
     fi && \
     if [ "$ENABLE_WHISPER_DIARIZE" = "1" ]; then \
-        pip install 'pyannote.audio>=3.1'; \
+        pip install 'pyannote.audio>=3.1' && \
+        pip install 'protobuf==4.25.9' && \
+        pip install --force-reinstall --index-url https://download.pytorch.org/whl/cpu torchcodec && \
+        SITE=$(python -c "import site; print(site.getsitepackages()[0])") && \
+        if [ -d "$SITE/nvidia/cu13/lib" ]; then \
+            echo "$SITE/nvidia/cu13/lib" >> /etc/ld.so.conf.d/nvidia-pip.conf && \
+            ldconfig 2>/dev/null || true; \
+        fi; \
     fi
 
 # NOTE: do NOT `pip install --upgrade yt-dlp` here — that would un-pin yt-dlp
