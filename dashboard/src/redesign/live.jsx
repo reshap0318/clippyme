@@ -105,9 +105,6 @@ function MonitorSettings({ monitor, onApply, applying }) {
   const [zoomTouched, setZoomTouched] = useState(false);
   const [reframeMode, setReframeMode] = useState(cfg.reframe_mode === 'object' ? 'subject' : (cfg.reframe_mode || 'disabled'));
   const [reframeModeTouched, setReframeModeTouched] = useState(false);
-  const [aiHashtags, setAiHashtags] = useState(!!cfg.ai_hashtags);
-  const [aiHashtagsTouched, setAiHashtagsTouched] = useState(false);
-  const [staticHashtags, setStaticHashtags] = useState(cfg.static_hashtags || '');
 
   const apply = () => {
     const partial = {};
@@ -126,8 +123,6 @@ function MonitorSettings({ monitor, onApply, applying }) {
     if (smartCutTouched) partial.smart_cut = smartCut;
     if (zoomTouched) partial.letterbox_zoom = zoom;
     if (reframeModeTouched) partial.reframe_mode = reframeMode;
-    if (aiHashtagsTouched) partial.ai_hashtags = aiHashtags;
-    if (staticHashtags.trim()) partial.static_hashtags = staticHashtags.trim();
     onApply(monitor.id, partial);
   };
 
@@ -148,18 +143,7 @@ function MonitorSettings({ monitor, onApply, applying }) {
         <span className="field-label">Caption template</span>
         <input className="key-input" style={{ width: '100%' }} aria-label={`Settings caption template ${monitor.id}`}
           value={captionTemplate} onChange={(e) => setCaptionTemplate(e.target.value)} />
-        <div className="od">Placeholders: {'{title} {hook} {hashtags}'}</div>
-      </div>
-      <div className="opt" style={{ borderBottom: 0, paddingLeft: 0, paddingRight: 0 }}>
-        <div className="otxt"><div className="ot">AI hashtags</div><div className="od">Include Gemini&apos;s per-clip hashtags in {'{hashtags}'}</div></div>
-        <Switch on={aiHashtags} label={`AI hashtags ${monitor.id}`}
-          onChange={(on) => { setAiHashtags(on); setAiHashtagsTouched(true); }} />
-      </div>
-      <div className="field">
-        <span className="field-label">Static hashtags</span>
-        <input className="key-input" style={{ width: '100%' }} aria-label={`Settings static hashtags ${monitor.id}`}
-          placeholder="#kick #clips" value={staticHashtags} onChange={(e) => setStaticHashtags(e.target.value)} />
-        <div className="od">Always appended to {'{hashtags}'}, duplicates with AI ones dropped.</div>
+        <div className="od">Placeholders: {'{title} {hook} {hashtagai}'}</div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 10 }}>
         <label className="field">
@@ -313,8 +297,6 @@ export function LiveMonitorView({ pushToast }) {
   const [smartCut, setSmartCut] = useState(false);
   const [reframeMode, setReframeMode] = useState('disabled');
   const [zoom, setZoom] = useState(0);
-  const [aiHashtags, setAiHashtags] = useState(false);
-  const [staticHashtags, setStaticHashtags] = useState('');
   const [subOn, setSubOn] = useState(false);
   const [sub, setSub] = useState(SUB_DEFAULTS);
   const [starting, setStarting] = useState(false);
@@ -353,8 +335,6 @@ export function LiveMonitorView({ pushToast }) {
         smart_cut: smartCut,
         reframe_mode: reframeMode,
         letterbox_zoom: zoom,
-        ai_hashtags: aiHashtags,
-        static_hashtags: staticHashtags,
         caption_template: captionTemplate,
         title_template: titleTemplate,
         instructions,
@@ -614,23 +594,9 @@ export function LiveMonitorView({ pushToast }) {
         </div>
         <div className="field">
           <span className="field-label">Caption template (optional)</span>
-          <textarea className="ta" rows="2" aria-label="Caption template" placeholder="{hook}"
+          <textarea className="ta" rows="2" aria-label="Caption template" placeholder={'{hook}\n\n{hashtagai}'}
             value={captionTemplate} onChange={(e) => setCaptionTemplate(e.target.value)}></textarea>
-          <div className="od">Placeholders: {'{title} {hook} {hashtags}'}</div>
-        </div>
-
-        <div className="opt" style={{ paddingLeft: 0, paddingRight: 0 }}>
-          <div className="otxt">
-            <div className="ot">AI hashtags</div>
-            <div className="od">Gemini writes 3-5 hashtags per clip; on = include them in {'{hashtags}'}</div>
-          </div>
-          <Switch on={aiHashtags} onChange={setAiHashtags} label="AI hashtags" />
-        </div>
-        <div className="field">
-          <span className="field-label">Static hashtags (optional)</span>
-          <input className="key-input" style={{ width: '100%' }} aria-label="Static hashtags"
-            placeholder="#kick #clips" value={staticHashtags} onChange={(e) => setStaticHashtags(e.target.value)} />
-          <div className="od">Always appended to {'{hashtags}'}, duplicates with AI ones dropped.</div>
+          <div className="od">Placeholders: {'{title} {hook} {hashtagai}'} — blank defaults to {'{hook}'} + {'{hashtagai}'}.</div>
         </div>
         </Group>
 

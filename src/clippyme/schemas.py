@@ -89,8 +89,9 @@ class ViralClip(BaseModel):
     # 3-5 hashtags relevant to this specific clip, always requested from
     # Gemini (unconditional — unlike title/hook copy, hashtags aren't part
     # of the engagement-bait policy this prompt otherwise avoids). Consumers
-    # decide whether/where to use them (e.g. live_monitor's ai_hashtags
-    # toggle); an empty list here just means Gemini returned none.
+    # decide whether/where to use them (e.g. live_monitor's `{hashtagai}`
+    # caption template placeholder); an empty list here just means Gemini
+    # returned none.
     hashtags: list[str] = Field(default_factory=list, max_length=8)
 
     @field_validator("hashtags", mode="before")

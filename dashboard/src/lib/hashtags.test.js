@@ -1,24 +1,27 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { parseStaticHashtags, combineHashtags } from './hashtags.js';
+import { combineHashtags, renderCaptionTemplate } from './hashtags.js';
 
-test('parseStaticHashtags splits on space/comma and strips leading #', () => {
-  assert.deepEqual(parseStaticHashtags('#fyp, viral  shorts'), ['#fyp', '#viral', '#shorts']);
+test('combineHashtags dedupes case-insensitively, order preserved', () => {
+  assert.deepEqual(combineHashtags(['#Kick', 'gaming', 'kick']), ['#Kick', '#gaming']);
 });
 
-test('parseStaticHashtags empty input', () => {
-  assert.deepEqual(parseStaticHashtags(''), []);
-  assert.deepEqual(parseStaticHashtags(undefined), []);
+test('combineHashtags handles missing/undefined input', () => {
+  assert.deepEqual(combineHashtags(undefined), []);
+  assert.deepEqual(combineHashtags(null), []);
 });
 
-test('combineHashtags dedupes case-insensitively, AI first', () => {
-  assert.deepEqual(
-    combineHashtags(['#Kick', 'gaming'], parseStaticHashtags('kick, #Viral fyp')),
-    ['#Kick', '#gaming', '#Viral', '#fyp'],
+test('renderCaptionTemplate fills placeholders and trims', () => {
+  assert.equal(
+    renderCaptionTemplate('{caption}\n\n{hashtagai}', { caption: 'Keren', hashtagai: '' }),
+    'Keren',
+  );
+  assert.equal(
+    renderCaptionTemplate('{title} — {hashtagai}', { title: 'Judul', hashtagai: '#a #b' }),
+    'Judul — #a #b',
   );
 });
 
-test('combineHashtags handles missing/undefined lists', () => {
-  assert.deepEqual(combineHashtags(undefined, undefined), []);
-  assert.deepEqual(combineHashtags(null, ['#a']), ['#a']);
+test('renderCaptionTemplate leaves unknown placeholders blank', () => {
+  assert.equal(renderCaptionTemplate('{nope}', {}), '');
 });

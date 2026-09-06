@@ -101,35 +101,16 @@ def remaining_prelive(prelive_skip_seconds: int, started_at, now) -> int:
     return max(0, int(prelive_skip_seconds - elapsed))
 
 
-_HASHTAG_SPLIT_RE = re.compile(r"[\s,]+")
-
-
 def _normalize_hashtag(tag: str) -> str:
     """Strip to bare alnum text (no leading '#', no punctuation/whitespace)."""
     return "".join(ch for ch in str(tag or "") if ch.isalnum())
 
 
-def parse_static_hashtags(raw: str) -> list[str]:
-    """Split the free-text 'static hashtags' field into '#tag' entries.
-
-    Accepts space- or comma-separated input, with or without a leading '#'.
-    """
-    if not raw:
-        return []
-    return [f"#{norm}" for piece in _HASHTAG_SPLIT_RE.split(raw)
-            if (norm := _normalize_hashtag(piece))]
-
-
-def combine_hashtags(ai_tags, static_tags) -> list[str]:
-    """Merge AI-generated + static hashtags, case-insensitive deduped.
-
-    AI tags come first (Gemini's are clip-specific), static tags are appended
-    after — a static tag already covered by an AI tag is dropped rather than
-    posted twice.
-    """
+def combine_hashtags(tags) -> list[str]:
+    """Dedupe Gemini's per-clip hashtags case-insensitively, order preserved."""
     seen = set()
     out = []
-    for tag in list(ai_tags or []) + list(static_tags or []):
+    for tag in tags or []:
         norm = _normalize_hashtag(tag)
         if not norm or norm.lower() in seen:
             continue
@@ -138,8 +119,11 @@ def combine_hashtags(ai_tags, static_tags) -> list[str]:
     return out
 
 
-def render_template(template: str, clip: dict, hashtags: str = "") -> str:
-    """Fill ``{title}`` / ``{hook}`` / ``{hashtags}`` placeholders from a clip dict.
+DEFAULT_CAPTION_TEMPLATE = "{hook}\n\n{hashtagai}"
+
+
+def render_template(template: str, clip: dict, hashtagai: str = "") -> str:
+    """Fill ``{title}`` / ``{hook}`` / ``{hashtagai}`` placeholders from a clip dict.
 
     Unknown placeholders (or a malformed template) fall back to the raw string
     so a bad template can never crash the publish path.
@@ -151,10 +135,35 @@ def render_template(template: str, clip: dict, hashtags: str = "") -> str:
             title=(clip.get("video_title_for_youtube_short")
                    or clip.get("title") or ""),
             hook=clip.get("viral_hook_text", "") or "",
-            hashtags=hashtags,
+            hashtagai=hashtagai,
         )
     except (KeyError, IndexError, ValueError):
         return template
+
+
+_TAG_RE = re.compile(r"#(\w+)")
+
+
+def dedupe_hashtags_in_text(text: str) -> str:
+    """Drop repeat '#tag' occurrences from an already-rendered caption,
+    case-insensitive, first occurrence wins — covers a hashtag the user typed
+    literally in the template colliding with one that came from {hashtagai}.
+    Leftover double-spaces/blank lines from a removed tag are collapsed.
+    """
+    seen: set[str] = set()
+
+    def _sub(m: re.Match) -> str:
+        key = m.group(1).lower()
+        if key in seen:
+            return ""
+        seen.add(key)
+        return m.group(0)
+
+    out = _TAG_RE.sub(_sub, text or "")
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"[ \t]+\n", "\n", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
 
 
 def allocate_clip_filename(title_template, clip, existing, counter):
@@ -338,7 +347,7 @@ def validate_monitor_config(config: dict, default_timezone: str = "Asia/Jakarta"
         # mirrors ProcessRequest.instructions (same MAX_INSTRUCTIONS_LEN cap,
         # again downstream by build_main_cmd/gemini_request).
         "instructions": str(config.get("instructions") or "").strip()[:MAX_INSTRUCTIONS_LEN],
-        "caption_template": str(config.get("caption_template") or "")[:2200],
+        "caption_template": str(config.get("caption_template") or DEFAULT_CAPTION_TEMPLATE)[:2200],
         "title_template": str(config.get("title_template") or "")[:500],
         "timezone": str(config.get("timezone") or default_timezone or "Asia/Jakarta")[:64],
         # "backfill" (default) recovers footage missed before capture started
@@ -378,14 +387,6 @@ def validate_monitor_config(config: dict, default_timezone: str = "Asia/Jakarta"
         # manual create flow uses — compose.py already keys hook duration,
         # banner attach mode and caption band position off this per-clip.
         "reframe_mode": _validate_reframe_mode(config.get("reframe_mode")),
-        # Gemini always returns per-clip hashtags now (schemas.ViralClip); this
-        # just gates whether the {hashtags} template placeholder includes them.
-        # Off by default so a bare {hashtags} in an existing caption template
-        # doesn't suddenly start posting AI text nobody opted into.
-        "ai_hashtags": _validate_bool(config.get("ai_hashtags", False), "ai_hashtags"),
-        # Free-text hashtags always appended after the AI ones (deduped case-
-        # insensitively) regardless of the ai_hashtags toggle.
-        "static_hashtags": str(config.get("static_hashtags") or "")[:500],
     }
 
 
@@ -397,7 +398,6 @@ _UPDATABLE_CONFIG_FIELDS = (
     "segment_seconds", "prelive_skip_seconds", "platforms", "banner", "compose",
     "poll_interval", "delete_after_publish", "max_clips", "clip_selection",
     "min_viral_score", "smart_cut", "letterbox_zoom", "reframe_mode",
-    "ai_hashtags", "static_hashtags",
 )
 
 # The full set of cfg keys worth persisting/restoring (mirrors
@@ -408,7 +408,7 @@ _SNAPSHOT_CONFIG_FIELDS = (
     "instructions", "caption_template", "title_template", "timezone",
     "banner", "compose", "catchup", "delete_after_publish", "max_clips",
     "clip_selection", "min_viral_score", "smart_cut", "letterbox_zoom",
-    "reframe_mode", "ai_hashtags", "static_hashtags",
+    "reframe_mode",
 )
 
 
@@ -1393,11 +1393,9 @@ class LiveMonitor:
             # Restored pending entry whose composed file vanished → recompose.
             upload_path = await self._compose_for_publish(job_id, clip)
 
-        hashtags = " ".join(combine_hashtags(
-            clip.get("hashtags") if self.cfg.get("ai_hashtags") else None,
-            parse_static_hashtags(self.cfg.get("static_hashtags", ""))))
-        title = render_template(self.cfg["title_template"], clip, hashtags=hashtags) or clip.get("title") or "Clip"
-        caption = render_template(self.cfg["caption_template"], clip, hashtags=hashtags)
+        hashtagai = " ".join(combine_hashtags(clip.get("hashtags")))
+        title = render_template(self.cfg["title_template"], clip, hashtagai=hashtagai) or clip.get("title") or "Clip"
+        caption = dedupe_hashtags_in_text(render_template(self.cfg["caption_template"], clip, hashtagai=hashtagai))
         # Serialise publishes GLOBALLY (shared lock) so the shared scheduler's
         # picked_slots list (mutated inside publish_clip's worker thread) stays
         # race-free across every monitor.

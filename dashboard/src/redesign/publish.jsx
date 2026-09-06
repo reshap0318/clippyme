@@ -16,7 +16,9 @@ import {
 } from "../lib/seedClipParams";
 import { localDatePlus } from "../lib/scheduleDates";
 import { useModalA11y } from "./useModalA11y";
-import { combineHashtags } from "../lib/hashtags";
+import { combineHashtags, renderCaptionTemplate, dedupeHashtagsInText } from "../lib/hashtags";
+
+const DEFAULT_CAPTION_TEMPLATE = "{caption}\n\n{hashtagai}";
 
 // redesign plat id → backend platform + account key. Exported so other
 // surfaces publishing to Zernio (live.jsx) don't re-derive this mapping.
@@ -131,41 +133,12 @@ export function PublishModal({
   const [zernio, setZernio] = useState(null);
   const [plats, setPlats] = useState({ tiktok: true, ig: true, yt: false });
   const [schedule, setSchedule] = useState(true);
-  // Single clip: `caption` IS the full, editable caption for that one clip
-  // (seeded from its own text). Batch (`all`): each clip already has its own
-  // caption/hashtags — one shared textarea can't represent N different
-  // captions, so here `caption` is instead free-text the user adds ON TOP,
-  // appended identically after every clip's own caption. Starts empty so it
-  // reads as "extra", not as an accidental override of clip 2..N's text.
-  const [caption, setCaption] = useState(
-    all ? "" : clips[0]?.tiktok_caption || clips[0]?.video_title_for_youtube_short || "",
-  );
-  const [aiHashtags, setAiHashtags] = useState(false);
-  // Single-clip only: toggling on writes the tags straight into the caption
-  // textarea (visible, editable) instead of appending them invisibly at
-  // submit time — user sees exactly what got added and can edit/remove any
-  // of it before publishing. `tags` is deterministic (derived from
-  // clips[0].hashtags), so re-deriving it on every toggle — rather than
-  // remembering what was injected — is what lets `.includes()` catch
-  // "already there" and skip a duplicate append.
-  // In batch mode there's no single box to preview into; each clip's own
-  // hashtags are appended per-clip at submit time instead (see buildBody).
-  const onToggleAiHashtags = (on) => {
-    setAiHashtags(on);
-    if (all) return;
-    const tags = combineHashtags(clips[0]?.hashtags, []).join(" ");
-    if (!tags) return;
-    setCaption((c) => {
-      if (on) {
-        if (c.includes(tags)) return c;
-        return c.trim() ? `${c.trim()}\n\n${tags}` : tags;
-      }
-      const withSep = `\n\n${tags}`;
-      if (c.endsWith(withSep)) return c.slice(0, -withSep.length);
-      if (c.trim() === tags) return "";
-      return c; // edited since injection (tags no longer at the tail) — leave it alone
-    });
-  };
+  // Caption is user-authored via a `{placeholder}` template (single braces,
+  // matching the Live Monitor caption template syntax) — same for single-clip
+  // and batch, applied per clip at submit time (renderCaptionTemplate).
+  // {caption} = the clip's own caption (falls back to its title),
+  // {title} = the clip's title, {hashtagai} = its Gemini hashtags.
+  const [template, setTemplate] = useState(DEFAULT_CAPTION_TEMPLATE);
   const [stage, setStage] = useState("setup"); // setup | uploading | done
   const [progress, setProgress] = useState({});
 
@@ -219,21 +192,11 @@ export function PublishModal({
     const title = (
       clip.video_title_for_youtube_short || `Clip ${idx + 1}`
     ).slice(0, 100);
-    // Batch: this clip's own caption, then one hashtag line — its own AI
-    // hashtags and the shared "additional caption" text sit side by side on
-    // that same line, not as separate paragraphs. Single clip: `caption`
-    // already IS the full text (edited/seeded above), used as-is.
-    const hashtagLine = [
-      aiHashtags ? combineHashtags(clip.hashtags, []).join(" ") : "",
-      caption.trim(),
-    ]
-      .filter(Boolean)
-      .join(" ");
-    const finalCaption = all
-      ? [clip.tiktok_caption || clip.video_title_for_youtube_short || title, hashtagLine]
-          .filter(Boolean)
-          .join("\n\n")
-      : (caption && caption.trim()) || title;
+    const finalCaption = dedupeHashtagsInText(renderCaptionTemplate(template, {
+      caption: clip.tiktok_caption || title,
+      title,
+      hashtagai: combineHashtags(clip.hashtags).join(" "),
+    })) || title;
     return {
       title,
       caption: finalCaption,
@@ -392,28 +355,16 @@ export function PublishModal({
                     </div>
                   </div>
                   <div className="field">
-                    <span className="field-label">{all ? "Additional caption (optional)" : "Caption"}</span>
+                    <span className="field-label">Caption template</span>
                     <textarea
                       className="ta"
                       rows="3"
-                      placeholder={all ? "Appended after every clip's own caption" : ""}
-                      value={caption}
-                      onChange={(e) => setCaption(e.target.value)}
+                      value={template}
+                      onChange={(e) => setTemplate(e.target.value)}
                     ></textarea>
-                    {all && (
-                      <div className="od">Each clip keeps its own caption — this is added on top, the same for all of them.</div>
-                    )}
-                  </div>
-                  <div className="opt" style={{ paddingLeft: 0, paddingRight: 0 }}>
-                    <div className="otxt">
-                      <div className="ot">AI hashtags</div>
-                      <div className="od">
-                        {all
-                          ? "Appends each clip's own Gemini hashtags after its caption"
-                          : "Inserts Gemini's per-clip hashtags into the caption above — edit or remove any of them before publishing"}
-                      </div>
+                    <div className="od">
+                      {"{caption}"}, {"{title}"}, {"{hashtagai}"} — filled in per clip{all ? " for every clip in this batch" : ""}. {"{caption}"} falls back to the clip&rsquo;s title if empty.
                     </div>
-                    <Switch on={aiHashtags} onChange={onToggleAiHashtags} label="AI hashtags" />
                   </div>
                   <div className="opt" style={{ borderBottom: 0 }}>
                     <div className="oico">
