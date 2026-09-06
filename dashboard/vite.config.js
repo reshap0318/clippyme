@@ -64,10 +64,10 @@ export default defineConfig({
     // Dev-server Host allow-list. Only local names — the unrelated upstream
     // 'openshorts.app' was removed (DNS-rebinding hardening). Add your own
     // hostname here if you proxy the dev server through a custom domain.
-    allowedHosts: [
-      'localhost',
-      '127.0.0.1',
-    ],
+    // true = accept any Host header. Needed for LAN access (device on the
+    // same network hits this dev server by IP, not localhost); dev-only,
+    // never ships in the production nginx build.
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://backend:8000',

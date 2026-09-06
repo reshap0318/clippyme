@@ -32,6 +32,12 @@ services:
       # network where every device is trusted.
       - "${CLIPPYME_BIND:-127.0.0.1}:8000:8000"
     environment:
+      # Browser Origin allow-list for config/state endpoints (security.py
+      # require_trusted_config_request). A browser sends Origin on same-origin
+      # POSTs too, so accessing the dashboard by LAN IP means every such
+      # request must have that IP:port added here or it's rejected with 403
+      # BEFORE the private-IP trust fallback ever runs.
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:5175}
       # Outbound HTTP(S) proxy — required on networks where direct egress is
       # blocked (yt-dlp, Gemini, Deepgram, HuggingFace all go through this).
       # Empty on networks with unrestricted internet — no-op.
