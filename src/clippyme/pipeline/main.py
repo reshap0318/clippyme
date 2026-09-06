@@ -152,6 +152,32 @@ from clippyme.pipeline import texttiling_ops  # noqa: E402
 
 
 
+def _laughter_detection_enabled() -> bool:
+    return (os.getenv("CLIPPYME_LAUGHTER_DETECTION") or "").strip().lower() in ("1", "true", "yes")
+
+
+def _run_laughter_detection(audio_path: str) -> list[dict]:
+    """Best-effort local laughter tagging (see laughter_detect.py). Never
+    raises — a detection failure must not fail the transcription step."""
+    try:
+        from clippyme.pipeline.laughter_detect import detect_laughter_events
+        return detect_laughter_events(audio_path)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("clippyme").warning("Laughter detection errored (%s) — skipping", exc)
+        return []
+
+
+def _attach_laughter_events(transcript: dict, events: list[dict]) -> dict:
+    if not events:
+        return transcript
+    from clippyme.pipeline.laughter_detect import weave_events_into_text
+    transcript["audio_events"] = events
+    transcript["text"] = weave_events_into_text(transcript, events)
+    n = len({(e["start"], e["end"]) for e in events})
+    print(f"   😂 Laughter detection: {n} moment(s) found.")
+    return transcript
+
+
 def _diarize_with_pyannote(audio_path: str) -> list[tuple[float, float, int]] | None:
     """Run pyannote.audio speaker-diarization-3.1 on a local audio file.
 
@@ -168,6 +194,12 @@ def _diarize_with_pyannote(audio_path: str) -> list[tuple[float, float, int]] | 
     ``pip install pyannote.audio>=3.1`` and accept the
     ``pyannote/speaker-diarization-3.1`` license on Hugging Face. The
     rest of the pipeline keeps working with or without speakers.
+
+    ponytail: a sherpa-onnx-based alternative (no HF token/license, ~500MB
+    lighter) was evaluated and rejected — even at cluster_threshold=0.99 it
+    over-segmented a real 4-speaker clip into 21+ "speakers" (the en_voxceleb
+    embedding model doesn't generalize to non-English speech). Revisit if a
+    better multilingual embedding model shows up.
     """
     if (os.getenv("WHISPER_DIARIZE") or "true").strip().lower() == "false":
         return None
@@ -312,7 +344,19 @@ def transcribe_video(video_path):
         if provider == "deepgram":
             try:
                 from clippyme.pipeline.deepgram_transcribe import transcribe_with_deepgram, DeepgramError
-                return transcribe_with_deepgram(asr_input)
+                # Deepgram is a cloud HTTP call (network-bound, no local
+                # CPU/GPU use) — run local laughter detection in a background
+                # thread alongside it instead of paying its cost sequentially.
+                laughter_future = None
+                if _laughter_detection_enabled():
+                    import concurrent.futures
+                    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                    laughter_future = _executor.submit(_run_laughter_detection, asr_input)
+                transcript = transcribe_with_deepgram(asr_input)
+                if laughter_future is not None:
+                    transcript = _attach_laughter_events(transcript, laughter_future.result())
+                    _executor.shutdown(wait=False)
+                return transcript
             except Exception as exc:  # noqa: BLE001 — broad catch for safe fallback
                 logging.getLogger("clippyme").warning(
                     "Deepgram transcription failed (%s) — falling back to Faster-Whisper", exc
@@ -413,11 +457,18 @@ def transcribe_video(video_path):
                 except OSError:
                     pass
 
-        return {
+        transcript = {
             'text': full_text.strip(),
             'segments': transcript_segments,
             'language': info.language
         }
+        # Whisper already saturates the GPU, so run laughter detection AFTER
+        # transcription finishes (sequential) rather than fighting it for
+        # CPU/GPU — unlike the Deepgram path above, which is network-bound
+        # and can run this concurrently for free.
+        if _laughter_detection_enabled():
+            transcript = _attach_laughter_events(transcript, _run_laughter_detection(asr_input))
+        return transcript
     finally:
         for _tmp in (_audio_tmp, _iso_tmp):
             if _tmp and os.path.exists(_tmp):

@@ -152,6 +152,23 @@ RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuse
     mkdir -p /app/uploads /app/output /app/data /app/data/bin /tmp/Ultralytics && \
     chown -R appuser:appuser /app /tmp/Ultralytics
 
+# Laughter-detection model (laughter_detect.py): a PINNED sha256-verified
+# download, same rationale as the auto-editor binary above. Lives OUTSIDE
+# /app deliberately — docker-compose bind-mounts the repo over /app at
+# runtime (`.:/app`), which would shadow anything baked here at build time
+# (see docker-entrypoint.sh's own note on the same trap). Extracted with
+# Python's tarfile instead of `tar`, since bzip2 isn't installed in this
+# image and adding it just for one archive isn't worth the extra apt layer.
+RUN AT_SHA=07e2fafcdcbc461f2816188d9b0bbafced12584030cf67d5652e549ef256a2c6 && \
+    curl -fsSL -o /tmp/at_model.tar.bz2 \
+      "https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models/sherpa-onnx-zipformer-small-audio-tagging-2024-04-15.tar.bz2" && \
+    echo "$AT_SHA  /tmp/at_model.tar.bz2" | sha256sum -c - && \
+    mkdir -p /opt/models && \
+    python3 -c "import tarfile; tarfile.open('/tmp/at_model.tar.bz2').extractall('/opt/models')" && \
+    mv /opt/models/sherpa-onnx-zipformer-small-audio-tagging-2024-04-15 /opt/models/sherpa-onnx-audio-tagging && \
+    rm -rf /opt/models/sherpa-onnx-audio-tagging/test_wavs /tmp/at_model.tar.bz2 && \
+    chmod -R a+rX /opt/models
+
 USER appuser
 
 # Pre-download YOLO model

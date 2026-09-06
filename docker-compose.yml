@@ -134,6 +134,11 @@ services:
       # for a deliberate LAN deployment: every API request must then carry
       # X-API-Token (the dashboard has a Settings field for it).
       - CLIPPYME_API_TOKEN=${CLIPPYME_API_TOKEN:-}
+      # Local laughter/audio-event detection for Deepgram/Whisper transcripts
+      # (laughter_detect.py) — gives the Gemini viral-moment prompt the same
+      # (laughter) signal ElevenLabs users get natively, at zero cloud cost.
+      # Default off (extra ~1-3 min per job on CPU for a long video).
+      - CLIPPYME_LAUGHTER_DETECTION=${CLIPPYME_LAUGHTER_DETECTION:-0}
     volumes:
       - .:/app
       - /app/__pycache__
