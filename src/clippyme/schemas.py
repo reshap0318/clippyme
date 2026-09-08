@@ -7,16 +7,36 @@ longer has to import from ``clippyme.api`` (which inverted the intended
 dependency direction). ``clippyme.api.schemas`` re-exports them for backward
 compatibility.
 """
+import os
+
 from pydantic import BaseModel, Field, field_validator
+
+
+def _clip_duration_bounds() -> tuple[float, float]:
+    """(min, max) duration Gemini's picks are validated against.
+
+    Deliberately a bit wider than CLIPPYME_MIN/MAX_CLIP_DURATION (fallback
+    75/180 — must stay in sync with cut_ops.DEFAULT_MIN/MAX_CLIP_DURATION)
+    so we don't throw away near-misses the Smart Cut post-processing can
+    still rescue.
+    """
+    try:
+        min_target = float(os.getenv("CLIPPYME_MIN_CLIP_DURATION") or 75.0)
+    except ValueError:
+        min_target = 75.0
+    try:
+        max_target = float(os.getenv("CLIPPYME_MAX_CLIP_DURATION") or 180.0)
+    except ValueError:
+        max_target = 180.0
+    return max(0.0, min_target - 5.0), max_target + 15.0
 
 
 class ViralClip(BaseModel):
     """A single viral clip candidate emitted by Gemini and validated
     before it's handed to the reframing pipeline.
 
-    Duration bounds are deliberately a bit wider than the user-facing
-    15-60s target (10-75s) so we don't throw away near-misses that the
-    Smart Cut post-processing can still rescue.
+    Duration bounds come from CLIPPYME_MIN/MAX_CLIP_DURATION with a little
+    slack, see ``_clip_duration_bounds``.
     """
     start: float = Field(..., ge=0)
     end: float = Field(..., gt=0)
@@ -138,9 +158,11 @@ class ViralClip(BaseModel):
         if v <= start:
             raise ValueError(f"end ({v}) must be strictly greater than start ({start})")
         duration = v - start
-        if duration < 10 or duration > 75:
+        min_dur, max_dur = _clip_duration_bounds()
+        if duration < min_dur or duration > max_dur:
             raise ValueError(
-                f"clip duration {duration:.2f}s outside allowed range [10, 75]"
+                f"clip duration {duration:.2f}s outside allowed range "
+                f"[{min_dur:.0f}, {max_dur:.0f}]"
             )
         return v
 
