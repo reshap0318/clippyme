@@ -21,7 +21,7 @@ MODEL_PRICING = {
 }
 
 GEMINI_PROMPT_TEMPLATE = """
-You are a senior short-form video editor specialized in TikTok, IG Reels and YouTube Shorts virality. Read the ENTIRE transcript + word-level timestamps and select the 3–15 MOST VIRAL 15–{max_duration}s moments.
+You are a senior short-form video editor specialized in TikTok, IG Reels and YouTube Shorts virality. Read the ENTIRE transcript + word-level timestamps and select the 3–15 MOST VIRAL {min_duration}–{max_duration}s moments.
 
 ## IS THIS MOMENT EVEN WORTH CUTTING? (gate — apply BEFORE scoring)
 A clip must hit at least ONE of these HARD. A moment that is merely pleasant,
@@ -79,7 +79,7 @@ Absence of these markers means the provider didn't tag audio events; score
 normally on the words alone.
 
 ## HARD CONSTRAINTS (violating = clip REJECTED)
-- 15s ≤ duration ≤ {max_duration}s
+- {min_duration}s ≤ duration ≤ {max_duration}s
 - start on a complete sentence boundary; end on a natural beat
 - no cold-open ambiguity ("...and then she said" with no setup)
 - 0 ≤ start < end ≤ VIDEO_DURATION_SECONDS
@@ -324,7 +324,7 @@ def encode_words_toon(words):
 
 
 def build_viral_prompt(transcript_result, video_duration, instructions=None, creator=None,
-                       max_duration=60):
+                       max_duration=180, min_duration=75):
     """Return ``(prompt, words)`` for the primary Gemini call.
 
     ``words`` is also what ``gemini_parser.backfill_hook_text`` needs later,
@@ -335,9 +335,10 @@ def build_viral_prompt(transcript_result, video_duration, instructions=None, cre
     — the speaker-attribution rule in the template still forbids putting a
     quote in a named mouth.
 
-    ``max_duration`` is the upper end of the HARD CONSTRAINT duration range
-    (default 60s — CLIPPYME_MAX_CLIP_DURATION overrides it). Must stay in sync
-    with ``cut_ops.DEFAULT_MAX_CLIP_DURATION`` / the value passed to
+    ``max_duration``/``min_duration`` bound the HARD CONSTRAINT duration range
+    (defaults 180s/75s — CLIPPYME_MAX_CLIP_DURATION / CLIPPYME_MIN_CLIP_DURATION
+    override them). ``max_duration`` must stay in sync with
+    ``cut_ops.DEFAULT_MAX_CLIP_DURATION`` / the value passed to
     ``snap_clips_to_transcript`` — otherwise the snap stage's extension
     ceiling disagrees with what Gemini was told it could pick.
     """
@@ -372,6 +373,7 @@ def build_viral_prompt(transcript_result, video_duration, instructions=None, cre
     prompt = GEMINI_PROMPT_TEMPLATE.format(
         video_duration=video_duration,
         max_duration=int(max_duration),
+        min_duration=int(min_duration),
         transcript_text=json.dumps(transcript_result.get('text', '')),
         words_toon=encode_words_toon(words),
         user_instructions_block=user_instructions_block,

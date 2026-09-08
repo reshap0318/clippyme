@@ -26,7 +26,7 @@ from clippyme.pipeline.reframe_ops import (
     normalize_letterbox_zoom,
     salient_crop_center,
 )
-from clippyme.pipeline.cut_ops import DEFAULT_MAX_CLIP_DURATION
+from clippyme.pipeline.cut_ops import DEFAULT_MAX_CLIP_DURATION, DEFAULT_MIN_CLIP_DURATION
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='google.protobuf')
@@ -490,6 +490,16 @@ def _max_clip_duration() -> float:
         return DEFAULT_MAX_CLIP_DURATION
 
 
+def _min_clip_duration() -> float:
+    """CLIPPYME_MIN_CLIP_DURATION overrides the 75s default floor Gemini is
+    told to respect when picking clips. See _max_clip_duration.
+    """
+    try:
+        return float(os.getenv("CLIPPYME_MIN_CLIP_DURATION") or DEFAULT_MIN_CLIP_DURATION)
+    except ValueError:
+        return DEFAULT_MIN_CLIP_DURATION
+
+
 def _reaction_pad_seconds() -> float:
     """CLIPPYME_CLIP_END_PAD_SECONDS — extra seconds tacked onto a clip's end
     after snapping, so a punchline gets a beat to land instead of a hard stop
@@ -514,7 +524,8 @@ def _reaction_overlap_seconds() -> float:
         return 0.0
 
 
-def get_viral_clips(transcript_result, video_duration, instructions=None, max_duration=None):
+def get_viral_clips(transcript_result, video_duration, instructions=None, max_duration=None,
+                     min_duration=None):
     print("🤖  Analyzing with Gemini...")
     get_viral_clips._last_gemini_exhausted = False
 
@@ -541,6 +552,7 @@ def get_viral_clips(transcript_result, video_duration, instructions=None, max_du
         transcript_result, video_duration, instructions,
         creator=os.getenv("CLIPPYME_CREATOR_NAME"),
         max_duration=max_duration if max_duration is not None else _max_clip_duration(),
+        min_duration=min_duration if min_duration is not None else _min_clip_duration(),
     )
 
     if not words:
@@ -782,6 +794,9 @@ if __name__ == '__main__':
     max_clip_duration = _max_clip_duration()
     if max_clip_duration != DEFAULT_MAX_CLIP_DURATION:
         print(f"⏱️  Max clip duration: {max_clip_duration:.0f}s (CLIPPYME_MAX_CLIP_DURATION override)")
+    min_clip_duration = _min_clip_duration()
+    if min_clip_duration != DEFAULT_MIN_CLIP_DURATION:
+        print(f"⏱️  Min clip duration: {min_clip_duration:.0f}s (CLIPPYME_MIN_CLIP_DURATION override)")
 
     reaction_pad = _reaction_pad_seconds()
     if reaction_pad > 0:
@@ -925,7 +940,8 @@ if __name__ == '__main__':
 
         # 4. Gemini Analysis
         clips_data = get_viral_clips(transcript, duration, instructions=args.instructions,
-                                     max_duration=max_clip_duration)
+                                     max_duration=max_clip_duration,
+                                     min_duration=min_clip_duration)
 
         # Smarter no-AI fallback: when Gemini is unavailable (no key) or its
         # output is unusable, segment the transcript into topic-coherent clips

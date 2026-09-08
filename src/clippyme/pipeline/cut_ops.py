@@ -165,7 +165,10 @@ DEFAULT_SENTENCE_BACK = 2.5
 # How far END may travel forward to finish a sentence (tighter — fights the cap).
 DEFAULT_SENTENCE_FWD = 1.5
 # Platform target ceiling. A sentence snap never pushes a clip past this.
-DEFAULT_MAX_CLIP_DURATION = 60.0
+DEFAULT_MAX_CLIP_DURATION = 180.0
+# Floor Gemini is told to respect when picking clips (prompt-enforced only —
+# the snap stage has no min-duration check of its own).
+DEFAULT_MIN_CLIP_DURATION = 75.0
 
 # Characters that terminate a sentence across EN/IT/ES/FR/DE/PT.
 _SENTENCE_FINAL_CHARS = ".!?…"  # . ! ? …

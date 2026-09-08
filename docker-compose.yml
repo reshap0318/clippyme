@@ -145,6 +145,10 @@ services:
       # (laughter) signal ElevenLabs users get natively, at zero cloud cost.
       # Default off (extra ~1-3 min per job on CPU for a long video).
       - CLIPPYME_LAUGHTER_DETECTION=${CLIPPYME_LAUGHTER_DETECTION:-0}
+      # Clip duration range Gemini is told to pick within (prompt-enforced
+      # min, prompt+snap-enforced max).
+      - CLIPPYME_MIN_CLIP_DURATION=${CLIPPYME_MIN_CLIP_DURATION:-75}
+      - CLIPPYME_MAX_CLIP_DURATION=${CLIPPYME_MAX_CLIP_DURATION:-180}
     volumes:
       - .:/app
       - /app/__pycache__
