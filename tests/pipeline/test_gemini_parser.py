@@ -20,7 +20,8 @@ from clippyme.pipeline.gemini_parser import (
 
 
 def _clip(start, end, score, reason='The speaker reveals the "secret" pricing tactic in detail'):
-    """A ViralClip dict that passes Pydantic (duration 10-75, score 1-100,
+    """A ViralClip dict that passes Pydantic (duration within
+    schemas._clip_duration_bounds(), default ~70-195s; score 1-100,
     reason >= 20 chars)."""
     return {
         "start": start, "end": end, "viral_score": score, "viral_reason": reason,
@@ -98,36 +99,36 @@ def test_specific_reason_with_quote_not_generic():
 # --- validate_and_dedupe ---------------------------------------------------
 
 def test_overlapping_clips_keep_higher_score():
-    data = {"shorts": [_clip(0, 30, 90), _clip(2, 31, 50)]}  # IoU ~0.90 > 0.7
+    data = {"shorts": [_clip(0, 90, 90), _clip(6, 93, 50)]}  # IoU ~0.90 > 0.7
     kept = validate_and_dedupe(data)
     assert len(kept) == 1
     assert kept[0]["viral_score"] == 90
 
 
 def test_non_overlapping_clips_both_kept():
-    data = {"shorts": [_clip(0, 30, 90), _clip(40, 70, 80)]}
+    data = {"shorts": [_clip(0, 90, 90), _clip(120, 210, 80)]}
     kept = validate_and_dedupe(data)
     assert len(kept) == 2
 
 
 def test_video_duration_filters_out_of_range_clips():
-    data = {"shorts": [_clip(0, 30, 90), _clip(50, 70, 80)]}
-    kept = validate_and_dedupe(data, video_duration=40)
+    data = {"shorts": [_clip(0, 90, 90), _clip(100, 190, 80)]}
+    kept = validate_and_dedupe(data, video_duration=100)
     assert len(kept) == 1
-    assert kept[0]["end"] == 30
+    assert kept[0]["end"] == 90
 
 
 def test_invalid_clip_dropped_not_whole_batch():
-    # Second clip's duration (3s) is below the 10s floor → dropped alone.
-    data = {"shorts": [_clip(0, 30, 90), _clip(0, 3, 80)]}
+    # Second clip's duration (3s) is below the min floor → dropped alone.
+    data = {"shorts": [_clip(0, 90, 90), _clip(0, 3, 80)]}
     kept = validate_and_dedupe(data)
     assert len(kept) == 1
 
 
 def test_drop_generic_removes_placeholder_reasons():
     data = {"shorts": [
-        _clip(0, 30, 90, reason='He names the "3-second rule" that doubled signups'),
-        _clip(40, 70, 80, reason="This is a cool moment in the video"),
+        _clip(0, 90, 90, reason='He names the "3-second rule" that doubled signups'),
+        _clip(120, 210, 80, reason="This is a cool moment in the video"),
     ]}
     kept = validate_and_dedupe(data, drop_generic=True)
     assert len(kept) == 1

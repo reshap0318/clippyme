@@ -30,6 +30,10 @@ class PreflightInputs:
     has_gpu: bool = False
     max_clips: int | None = None
     analysis_enabled: bool = True
+    # Midpoint of CLIPPYME_MIN/MAX_CLIP_DURATION — the caller computes this
+    # from env since this module stays pure/env-free. Default matches the
+    # 75/180 fallback in main._min_clip_duration/_max_clip_duration.
+    avg_clip_seconds: float = 127.5
 
 
 def _clamp(value: int, low: int, high: int) -> int:
@@ -88,7 +92,9 @@ def estimate_disk_bytes(inputs: PreflightInputs, clip_count: int) -> int:
     """Conservative peak disk requirement including source slices and temp files."""
     duration = max(1.0, float(inputs.duration_seconds))
     input_bytes = max(0, int(inputs.input_bytes))
-    selected_seconds = min(duration, clip_count * 45.0) if inputs.analysis_enabled else duration
+    selected_seconds = (
+        min(duration, clip_count * inputs.avg_clip_seconds) if inputs.analysis_enabled else duration
+    )
     generated = selected_seconds * 18_000_000 / 8
     transcript_and_metadata = (
         max(64 * _MIB, duration * 30_000)
@@ -107,7 +113,10 @@ def estimate_runtime_seconds(inputs: PreflightInputs, clip_count: int) -> int:
     else:
         analysis_factor = 0.05
     render_factor = 0.55 if inputs.has_gpu else 1.25
-    seconds = 45 + source_minutes * 60 * analysis_factor + clip_count * 45 * render_factor
+    seconds = (
+        45 + source_minutes * 60 * analysis_factor
+        + clip_count * inputs.avg_clip_seconds * render_factor
+    )
     return max(30, int(math.ceil(seconds)))
 
 

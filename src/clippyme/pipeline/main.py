@@ -711,7 +711,11 @@ def build_texttiling_fallback(transcript_result, video_title):
     """
     try:
         segments = (transcript_result or {}).get('segments') or []
-        topic_clips = texttiling_ops.find_topic_clips(segments)
+        topic_clips = texttiling_ops.find_topic_clips(
+            segments,
+            min_clip_duration=_min_clip_duration(),
+            max_clip_duration=_max_clip_duration(),
+        )
         if not topic_clips:
             return None
         print(f"🧩 Gemini unavailable — lexical TextTiling found {len(topic_clips)} topic clips.")

@@ -250,7 +250,7 @@ def test_scheduler_preserves_requested_timezone():
     occupied = [datetime(2026, 7, 1, 10, 0, tzinfo=tz)]
     slot = _scheduler(4).find_slot(day, occupied=occupied, now=now)
     assert slot.tzinfo is not None
-    assert slot.utcoffset() == timedelta(hours=2)
+    assert slot.utcoffset() == timedelta(hours=7)
     assert slot > now
 
 
@@ -297,7 +297,7 @@ def test_auto_schedule_uses_configured_timezone_not_server_local(monkeypatch, tm
         start_date="2026-07-01",
         scheduler=SmartScheduler(rng=random.Random(2)),
     )
-    assert result["scheduled_for"].endswith("+02:00")
+    assert result["scheduled_for"].endswith("+07:00")
     assert captured["timezone"] == "Asia/Jakarta"
     assert captured["scheduled_for"] == result["scheduled_for"]
 
