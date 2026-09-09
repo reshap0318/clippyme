@@ -102,10 +102,13 @@ def load_zernio_config() -> dict:
         "api_key": zernio.get("api_key", ""),
         "accounts": accounts if isinstance(accounts, dict) else {},
         "timezone": zernio.get("timezone", "Asia/Jakarta"),
+        "clips_per_day": zernio.get("clips_per_day", 1),
     }
 
 
-def save_zernio_config(api_key: str = None, accounts: dict = None, timezone: str = None) -> bool:
+def save_zernio_config(
+    api_key: str = None, accounts: dict = None, timezone: str = None, clips_per_day: int = None
+) -> bool:
     """Merge-update Zernio settings as one locked read-modify-write."""
     with _CONFIG_LOCK:
         raw = _read_raw_config()
@@ -129,6 +132,8 @@ def save_zernio_config(api_key: str = None, accounts: dict = None, timezone: str
             current["accounts"] = merged
         if timezone is not None:
             current["timezone"] = timezone
+        if clips_per_day is not None:
+            current["clips_per_day"] = clips_per_day
         raw[ZERNIO_CONFIG_NAMESPACE] = current
         return _write_raw_config(raw)
 
@@ -142,6 +147,7 @@ def zernio_config_status() -> dict:
         "api_key_masked": masked,
         "accounts": cfg.get("accounts", {}),
         "timezone": cfg.get("timezone", "Asia/Jakarta"),
+        "clips_per_day": cfg.get("clips_per_day", 1),
     }
 
 

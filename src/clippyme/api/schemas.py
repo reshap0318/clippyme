@@ -447,6 +447,10 @@ class ZernioConfigRequest(BaseModel):
     api_key: Optional[str] = Field(None, max_length=512)
     accounts: Optional[dict] = None
     timezone: Optional[str] = Field(None, max_length=64)
+    # How many clips a batch publish packs onto the same calendar day before
+    # rolling to the next one (SmartScheduler still spaces them by min_gap
+    # within the day) — trades against the platform's own daily post cap.
+    clips_per_day: Optional[int] = Field(None, ge=1, le=20)
 
     @field_validator("timezone")
     @classmethod

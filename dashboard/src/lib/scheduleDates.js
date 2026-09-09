@@ -1,12 +1,29 @@
-// Local YYYY-MM-DD for the publish `start_date`, offset by `addDays`. Used to
-// give each clip in a batch its own day so a per-platform daily posting cap
-// (e.g. YouTube's 5/day) doesn't reject the tail of the batch.
+// YYYY-MM-DD for the publish `start_date`, offset by `addDays`, computed in
+// `timeZone` (the Zernio account's scheduling timezone) rather than the
+// browser's local timezone — the backend's SmartScheduler picks slots and
+// resolves "today" in that same timezone, so a browser-local date can be off
+// by a day from what the operator sees scheduled.
 //
 // `now` is injectable for tests; callers omit it.
-export function localDatePlus(addDays, now = new Date()) {
-  const d = new Date(now);
-  d.setDate(d.getDate() + addDays);
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
+export function localDatePlus(addDays, now = new Date(), timeZone = "Asia/Jakarta") {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const get = (type) => parts.find((p) => p.type === type).value;
+  const d = new Date(Date.UTC(+get("year"), +get("month") - 1, +get("day")));
+  d.setUTCDate(d.getUTCDate() + addDays);
+  return d.toISOString().slice(0, 10);
+}
+
+// Add `addDays` days to a YYYY-MM-DD string (date-only, no timezone
+// ambiguity — used to offset a user-picked or default start date per clip
+// in a batch).
+export function addDaysToDateString(dateStr, addDays) {
+  const [y, m, day] = dateStr.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1, day));
+  d.setUTCDate(d.getUTCDate() + addDays);
+  return d.toISOString().slice(0, 10);
 }

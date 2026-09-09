@@ -126,6 +126,8 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
   const [zernio, setZernioState] = useState(null);
   const [zKey, setZKey] = useState('');
   const [accts, setAccts] = useState({ tiktok: '', instagram: '', youtube: '' });
+  const [zTz, setZTz] = useState('');
+  const [zClipsPerDay, setZClipsPerDay] = useState(1);
   const [cookies, setCookies] = useState(!!cookiesConfigured);
   const [logoOn, setLogoOn] = useState(false);
   const [fonts, setFonts] = useState([]);
@@ -168,7 +170,7 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
 
   useEffect(() => {
     refreshConfig().then(loadModels);
-    getZernio().then((z) => { setZernioState(z); if (z.accounts) setAccts({ tiktok: '', instagram: '', youtube: '', ...z.accounts }); }).catch(() => {});
+    getZernio().then((z) => { setZernioState(z); if (z.accounts) setAccts({ tiktok: '', instagram: '', youtube: '', ...z.accounts }); setZTz(z.timezone || 'Asia/Jakarta'); setZClipsPerDay(z.clips_per_day || 1); }).catch(() => {});
     cookiesStatus().then((s) => setCookies(!!s.configured)).catch(() => {});
     logoStatus().then((s) => setLogoOn(!!s.configured)).catch(() => {});
     listFonts().then(({ fonts: f }) => setFonts(Array.isArray(f) ? f : [])).catch(() => {});
@@ -183,12 +185,16 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
 
   const saveZernioCfg = async () => {
     try {
-      const payload = { accounts: accts };
+      const payload = {
+        accounts: accts,
+        timezone: zTz.trim() || 'Asia/Jakarta',
+        clips_per_day: Math.min(20, Math.max(1, Number(zClipsPerDay) || 1)),
+      };
       if (zKey.trim()) payload.api_key = zKey.trim();
       const z = await saveZernio(payload);
-      setZernioState(z); setZKey('');
+      setZernioState(z); setZKey(''); setZTz(z.timezone || 'Asia/Jakarta'); setZClipsPerDay(z.clips_per_day || 1);
       pushToast?.('success', 'Zernio saved');
-    } catch { pushToast?.('error', 'Zernio save failed'); }
+    } catch { pushToast?.('error', 'Zernio save failed — check the timezone is a valid IANA name'); }
   };
 
   const discover = async () => {
@@ -320,6 +326,17 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
                 aria-label={`${p} account id`}
                 value={accts[p] || ''} placeholder={`${p} account id`} onChange={(e) => setAccts((a) => ({ ...a, [p]: e.target.value }))} />
             ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 8 }}>
+            <input className="key-input" style={{ width: '100%', fontFamily: 'var(--font-sans)' }}
+              aria-label="Zernio scheduling timezone"
+              value={zTz} placeholder="Scheduling timezone (IANA, e.g. Asia/Jakarta)"
+              onChange={(e) => setZTz(e.target.value)} />
+            <input className="key-input" style={{ width: '100%', fontFamily: 'var(--font-sans)' }}
+              type="number" min={1} max={20}
+              aria-label="Clips scheduled per day in a batch"
+              value={zClipsPerDay} placeholder="Clips/day"
+              onChange={(e) => setZClipsPerDay(e.target.value)} />
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <Btn variant="secondary" size="sm" icon="rss" onClick={discover}>Discover from Zernio</Btn>

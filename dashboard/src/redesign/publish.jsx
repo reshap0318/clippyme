@@ -14,7 +14,7 @@ import {
   seedLogoParams,
   seedBannerParams,
 } from "../lib/seedClipParams";
-import { localDatePlus } from "../lib/scheduleDates";
+import { localDatePlus, addDaysToDateString } from "../lib/scheduleDates";
 import { useModalA11y } from "./useModalA11y";
 import { combineHashtags, renderCaptionTemplate, dedupeHashtagsInText } from "../lib/hashtags";
 
@@ -133,6 +133,13 @@ export function PublishModal({
   const [zernio, setZernio] = useState(null);
   const [plats, setPlats] = useState({ tiktok: true, ig: true, yt: false });
   const [schedule, setSchedule] = useState(true);
+  // Base day for scheduling (YYYY-MM-DD). `null` = follow the computed
+  // default (today in the Zernio account's timezone); set once the user
+  // edits the date field, so their pick survives zernio/timezone reloads.
+  const [startDate, setStartDate] = useState(null);
+  const tz = zernio?.timezone || "Asia/Jakarta";
+  const defaultStartDate = localDatePlus(0, new Date(), tz);
+  const effectiveStartDate = startDate || defaultStartDate;
   // Caption is user-authored via a `{placeholder}` template (single braces,
   // matching the Live Monitor caption template syntax) — same for single-clip
   // and batch, applied per clip at submit time (renderCaptionTemplate).
@@ -174,9 +181,11 @@ export function PublishModal({
   const ready = zernio?.configured && targets.length > 0;
 
   // `batchPos` is the clip's position within this batch (0-based). When
-  // scheduling, each clip gets its own day (start_date = today + batchPos) so
-  // a per-platform daily cap doesn't reject the tail of the batch — replicates
-  // the one-clip-per-day spacing from the original publisher.
+  // scheduling, every `clipsPerDay` clips share a start_date, then roll to
+  // the next day — keeps a per-platform daily cap from rejecting the tail of
+  // the batch while letting the operator pack more than one clip/day when
+  // their cap allows it (Settings → Zernio → clips/day).
+  const clipsPerDay = Math.max(1, zernio?.clips_per_day || 1);
   const buildBody = (clip, idx, batchPos = 0) => {
     const cs = clipStates[idx] || {};
     const toggles = cs.toggles ?? seedToggles(preselections);
@@ -202,8 +211,15 @@ export function PublishModal({
       caption: finalCaption,
       platforms: targets,
       schedule_mode: schedule ? "auto" : "now",
-      ...(schedule ? { start_date: localDatePlus(batchPos) } : {}),
-      timezone: zernio?.timezone || "Asia/Jakarta",
+      ...(schedule
+        ? {
+            start_date: addDaysToDateString(
+              effectiveStartDate,
+              Math.floor(batchPos / clipsPerDay),
+            ),
+          }
+        : {}),
+      timezone: tz,
       tiktok_settings:
         plats.tiktok && accounts.tiktok
           ? {
@@ -363,7 +379,7 @@ export function PublishModal({
                       onChange={(e) => setTemplate(e.target.value)}
                     ></textarea>
                     <div className="od">
-                      {"{caption}"}, {"{title}"}, {"{hashtagai}"} — filled in per clip{all ? " for every clip in this batch" : ""}. {"{caption}"} falls back to the clip&rsquo;s title if empty.
+                      Available: {"{caption}"}, {"{title}"}, {"{hashtagai}"}
                     </div>
                   </div>
                   <div className="opt" style={{ borderBottom: 0 }}>
@@ -380,6 +396,18 @@ export function PublishModal({
                       <Switch on={schedule} onChange={setSchedule} />
                     </div>
                   </div>
+                  {schedule && (
+                    <div className="field">
+                      <span className="field-label">Start date</span>
+                      <input
+                        type="date"
+                        className="ta"
+                        min={defaultStartDate}
+                        value={effectiveStartDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                      />
+                    </div>
+                  )}
                 </>
               )}
             </div>
