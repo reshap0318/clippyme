@@ -21,7 +21,7 @@ MODEL_PRICING = {
 }
 
 GEMINI_PROMPT_TEMPLATE = """
-You are a senior short-form video editor specialized in TikTok, IG Reels and YouTube Shorts virality. Read the ENTIRE transcript + word-level timestamps and select the 3–15 MOST VIRAL {min_duration}–{max_duration}s moments.
+You are a senior short-form video editor specialized in TikTok, IG Reels and YouTube Shorts virality. Read the ENTIRE transcript + word-level timestamps and select {clip_count_instruction} {min_duration}–{max_duration}s moments.
 
 ## IS THIS MOMENT EVEN WORTH CUTTING? (gate — apply BEFORE scoring)
 A clip must hit at least ONE of these HARD. A moment that is merely pleasant,
@@ -95,14 +95,14 @@ normally on the words alone.
   the first word of a sentence and close on the last word of a sentence.
 - viral_reason MUST be at least 20 characters and cite the specific hook, payoff or quote
 - viral_hook_text is REQUIRED, NEVER empty: 3-8 words, written AS A SCROLL-STOPPING OVERLAY — NOT a transcript quote, NOT the first words the speaker says. It is standalone copywriting designed to make someone stop scrolling on TikTok/Reels. Use one of these proven patterns:
-    * Curiosity gap: "Nessuno ti dice questo", "What they don't want you to know"
-    * POV / relatable: "POV: sei il primo a scoprirlo", "POV: you just realized…"
-    * Counter-intuitive claim: "Stavo sbagliando tutto", "I was doing it wrong"
-    * Direct question: "E se fosse tutto falso?", "What if you're wrong?"
-    * Number / stakes: "3 cose che nessuno dice", "3 things nobody tells you"
-    * Warning / callout: "Non guardare se…", "Stop scrolling if…"
-    * Stakes / consequence: "Dopo questo può smettere", "This ends his career"
-    * Prediction bait: "Indovina quanto vale", "Guess the number"
+    * Curiosity gap: "Gak ada yang kasih tau ini", "What they don't want you to know"
+    * POV / relatable: "POV: kamu yang pertama tau ini", "POV: you just realized…"
+    * Counter-intuitive claim: "Ternyata aku salah dari awal", "I was doing it wrong"
+    * Direct question: "Gimana kalau ini semua bohong?", "What if you're wrong?"
+    * Number / stakes: "3 hal yang gak pernah dibilang", "3 things nobody tells you"
+    * Warning / callout: "Jangan tonton kalau…", "Stop scrolling if…"
+    * Stakes / consequence: "Abis ini bisa pensiun dini", "This ends his career"
+    * Prediction bait: "Tebak harganya berapa", "Guess the number"
   The hook must TEASE the content of the clip without spoiling the payoff. Same language as the transcript. Title Case or Sentence case, never ALL CAPS.
 - No generic intros/outros or pure sponsorship unless they ARE the hook
 
@@ -116,38 +116,38 @@ reaction to a specific named person (in video_title_for_youtube_short,
 viral_hook_text or viral_reason) UNLESS that exact name is EXPLICITLY spoken in
 the transcript words of THAT clip. Any name listed only in the user context/
 instructions does NOT count as evidence of who is speaking. When the speaker is
-not named in the clip, use a generic reference instead (e.g. "un concorrente",
-"uno di loro", "in villa", "chi parla") — never guess. A wrong name is far worse
-than no name.
+not named in the clip, use a generic reference instead (e.g. "salah satu peserta",
+"salah satu dari mereka", "di lokasi itu", "yang lagi ngomong") — never guess. A
+wrong name is far worse than no name.
 ONE EXCEPTION: when a CHANNEL OWNER is given in VIDEO METADATA, that name may be
 the SUBJECT of a title/hook (whose stream this is, what happened on it) — but
 still never the source of a specific quote or opinion unless it is spoken in the
-clip. "<owner> trova un pezzo da 10k" is fine; "<owner>: 'non ci credo'" is not,
-because the voice may belong to a guest.
+clip. "<owner> nemu barang seharga 10 juta" is fine; "<owner>: 'gila gak nyangka'"
+is not, because the voice may belong to a guest.
 
 ## TITLE & CAPTION COPY (this is where clips win or die)
 A title is NOT a summary of the clip. It is bait: its only job is to make
-someone stop, watch, and COMMENT. Flat descriptive titles ("Trova una moneta
-rara") are a failure even when the clip is great.
+someone stop, watch, and COMMENT. Flat descriptive titles ("Nemu koin langka")
+are a failure even when the clip is great.
 
 Write video_title_for_youtube_short and both descriptions with these rules:
 
 1. PLAY UP THE STAKES. Take what actually happens and frame it at its most
    dramatic, most absurd or most consequential reading. A rare coin is not "a
-   coin" — it is "il pezzo che ripaga un anno di stream".
+   coin" — it is "barang yang bisa nutup biaya live setahun".
 2. SPECULATE OUT LOUD. A consequence that does not happen in the clip is
    allowed ONLY as open speculation, never as a statement of fact — use a
-   conditional, a question, or a "dopo questo…" framing:
-     OK:  "Dopo un cimelio da 10k, <creator> smette di fare live?"
-     OK:  "Con questo pezzo può chiudere lo stream e andare in pensione"
-     NO:  "<creator> ha annunciato che smette" ← invented fact = a lie
+   conditional, a question, or an "abis ini…" framing:
+     OK:  "Abis nemu barang 10 juta, <creator> bakal pensiun dini?"
+     OK:  "Dengan barang ini dia bisa langsung berhenti live dan pensiun"
+     NO:  "<creator> udah ngumumin bakal berhenti" ← invented fact = a lie
 3. BAIT THE COMMENTS IMPLICITLY. At least one of the three text fields must
    give the viewer something to reply to: an opinion that splits the audience,
-   a debatable valuation, a genuine question, a "ditemi che sbaglio", a guess
-   invited before the reveal. NEVER use mechanical engagement bait — "commenta
-   X e ti mando…", "metti like se sei d'accordo", "seguimi e ti seguo", "solo
-   il 10% ci riesce". Those are demoted/feed-ineligible by TikTok and Meta
-   policy; an honest ask for an opinion is explicitly allowed.
+   a debatable valuation, a genuine question, a "koreksi kalau aku salah", a
+   guess invited before the reveal. NEVER use mechanical engagement bait —
+   "komen X dan aku kirim…", "like kalau kamu setuju", "follow aku, aku
+   follback", "cuma 10% yang bisa jawab ini". Those are demoted/feed-ineligible
+   by TikTok and Meta policy; an honest ask for an opinion is explicitly allowed.
 4. LEAVE THE LOOP OPEN. Name the object/number/reaction, never the outcome —
    the payoff must be watched, not read.
 5. CONCRETE > VAGUE. Real numbers, real objects, real amounts beat adjectives.
@@ -160,31 +160,32 @@ Write video_title_for_youtube_short and both descriptions with these rules:
    contain is misleading metadata and gets the account penalised.
 7. STACK EXACTLY TWO triggers per title (e.g. stakes + open loop). One is
    flat, three reads as spam.
-8. Register: spoken streamer talk, informal second person (in Italian always
-   "tu"/"voi", never "lei" — and "voi" is what pulls replies). Sentence case
-   or lowercase, CAPS on at most one or two words for emphasis, never the
-   whole line, at most one emoji. No "non crederai mai", no emoji walls, no
-   hashtag spam, no machine-translated English templates. Sound like a viewer
-   in chat, not like a newspaper headline.
+8. Register: spoken streamer talk, informal second person (in Indonesian use
+   "kamu"/"lo" and the casual plural "kalian", never the formal "Anda" — casual
+   plural address is what pulls replies). Sentence case or lowercase, CAPS on
+   at most one or two words for emphasis, never the whole line, at most one
+   emoji. No "gak bakal percaya", no emoji walls, no hashtag spam, no
+   machine-translated English templates. Sound like a viewer in chat, not like
+   a newspaper headline.
 9. NAME PLACEMENT: lead with the creator's name only when it is the draw;
    otherwise lead with the moment and put the name second. Use the handle the
    audience actually uses, never a legal name.
 
 Title patterns that work (rotate them — the same template every clip burns
 credibility fast):
-  * Consequence bait:   "Dopo questo <creator> può smettere di streammare"
-  * Valuation debate:   "Quanto pensate valga? Io dico 10k"
-  * Underreaction:      "Trova un pezzo da 10k e reagisce così"
-  * Ratio / stakes:     "1 euro speso, 10.000 trovati"
-  * Near-emotion:       "Ha quasi pianto quando ha capito cos'era"
-  * Prediction bait:    "Indovinate quanto vale prima che lo dica"
-  * Second-person POV:  "POV: apri la scatola e c'è quello"
-  * Split opinion:      "Lo venderei subito. Voi no, lo so"
-  * Open question:      "Secondo voi è vero o è finto?"
-  * Chat as antagonist: "La chat gli ha detto di venderlo. Aveva ragione?"
-  * Withheld reveal:    "Non riusciva più a parlare. Guardate perché"
-  * Streak / number:    "Il terzo colpo di fila, e nessuno ne parla"
-  * Understatement:     "10.000 euro e ha detto solo 'ok'"
+  * Consequence bait:   "Abis ini <creator> bisa pensiun dari streaming"
+  * Valuation debate:   "Menurut kalian harganya berapa? Gue rasa 10 juta"
+  * Underreaction:      "Nemu barang 10 juta, reaksinya malah gini"
+  * Ratio / stakes:     "Modal 10 ribu, hasilnya 10 juta"
+  * Near-emotion:       "Hampir nangis pas sadar itu apa"
+  * Prediction bait:    "Tebak dulu harganya sebelum dia kasih tau"
+  * Second-person POV:  "POV: buka kotak dan ternyata isinya itu"
+  * Split opinion:      "Gue bakal langsung jual. Kalian pasti enggak, gue tau"
+  * Open question:      "Menurut kalian ini asli apa settingan?"
+  * Chat as antagonist: "Chat nyuruh dia jual. Bener gak sih?"
+  * Withheld reveal:    "Sampai gak bisa ngomong. Liat kenapa"
+  * Streak / number:    "Ini kemenangan ketiga beruntun, tapi gak ada yang ngeh"
+  * Understatement:     "Dapet 10 juta dan cuma bilang 'oke'"
 
 A deliberately debatable ANGLE (a valuation you call too low, a choice you
 call wrong) is the strongest comment driver — people correct a claim far more
@@ -195,13 +196,13 @@ money-making or news: that is misinformation, not bait.
 ## FEW-SHOT EXAMPLES
 GOOD TITLES (engagement-first, grounded in what the clip shows):
   clip: the streamer digs up a collectible and says it is worth about 10k
-  video_title_for_youtube_short="Dopo un cimelio da 10k può anche smettere di fare live"   ← speculative consequence, not stated as fact
-  video_title_for_youtube_short="Ne ha trovato uno da 10.000 euro e fa finta di niente"    ← underreaction + number
-  video_title_for_youtube_short="Voi lo vendereste? Io manco per idea"                     ← splits the comments
+  video_title_for_youtube_short="Abis nemu barang 10 juta, bisa langsung pensiun dari live" ← speculative consequence, not stated as fact
+  video_title_for_youtube_short="Nemu yang harganya 10 juta, dianya malah santai aja"       ← underreaction + number
+  video_title_for_youtube_short="Kalian bakal jual gak? Gue mah kagak kepikiran"            ← splits the comments
 BAD TITLES:
-  "Il momento in cui trova la moneta"     ← summary, no bait, no reason to comment
-  "NON CREDERAI MAI A COSA TROVA 😱😱"    ← caps + generic clickbait, zero information
-  "Ha annunciato che chiude il canale"    ← invented fact, contradicts the clip
+  "Momen pas dia nemu koinnya"                    ← summary, no bait, no reason to comment
+  "GAK BAKAL PERCAYA APA YANG DIA TEMUKAN 😱😱"   ← caps + generic clickbait, zero information
+  "Katanya dia bakal tutup channel"               ← invented fact, contradicts the clip
 
 GOOD (score 87):
   start=12.340 end=37.900
@@ -244,10 +245,10 @@ JSON formatting rules (violating = parse failure):
 - No trailing commas before }} or ]
 - Strings stay on a single line (no raw \\n mid-string)
 - Every description ENDS with a conversation opener: a genuine question or a
-  debatable opinion about what just happened ("Voi l'avreste venduto?", "Per me
-  ha sbagliato, ditemi che sbaglio"). Never a mechanical CTA ("commenta X e ti
-  mando…", "metti like se…", "seguimi e ti seguo") — that is engagement bait and
-  costs the clip its feed eligibility.
+  debatable opinion about what just happened ("Kalian bakal jual gak?", "Menurut
+  gue dia salah, koreksi kalau gue yang salah"). Never a mechanical CTA ("komen X
+  dan gue kirim…", "like kalau setuju…", "follow gue, gue follback") — that is
+  engagement bait and costs the clip its feed eligibility.
 
 Output schema:
 ### JSON ###
@@ -324,7 +325,7 @@ def encode_words_toon(words):
 
 
 def build_viral_prompt(transcript_result, video_duration, instructions=None, creator=None,
-                       max_duration=180, min_duration=75):
+                       max_duration=180, min_duration=75, target_clips=None):
     """Return ``(prompt, words)`` for the primary Gemini call.
 
     ``words`` is also what ``gemini_parser.backfill_hook_text`` needs later,
@@ -341,7 +342,25 @@ def build_viral_prompt(transcript_result, video_duration, instructions=None, cre
     ``cut_ops.DEFAULT_MAX_CLIP_DURATION`` / the value passed to
     ``snap_clips_to_transcript`` — otherwise the snap stage's extension
     ceiling disagrees with what Gemini was told it could pick.
+
+    ``target_clips`` is a soft user target (Create tab "Set N", not Auto): it
+    becomes part of the PRIMARY instruction (not buried in user_instructions,
+    which the model treats as a lower-priority preference), but stays
+    explicitly non-binding — the gate/rubric above still decides what's
+    actually worth cutting. ``None``/unset keeps the original open "3–15"
+    range. A response that comes back over/under target is never an error:
+    ``gemini_parser.cap_clips_by_score`` trims an over-count by score
+    afterwards; an under-count is accepted as-is (see main.get_viral_clips).
     """
+    if target_clips:
+        clip_count_instruction = (
+            f"approximately {int(target_clips)} of the MOST VIRAL (fewer is fine if the "
+            "content genuinely doesn't support that many — never pad with a weak clip "
+            "to hit the number; more is fine too, the strongest ones win either way)"
+        )
+    else:
+        clip_count_instruction = "the 3–15 MOST VIRAL"
+
     words = extract_prompt_words(transcript_result)
 
     user_instructions_block = ""
@@ -378,6 +397,7 @@ def build_viral_prompt(transcript_result, video_duration, instructions=None, cre
         words_toon=encode_words_toon(words),
         user_instructions_block=user_instructions_block,
         creator_block=creator_block,
+        clip_count_instruction=clip_count_instruction,
     )
     return prompt, words
 

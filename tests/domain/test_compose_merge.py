@@ -1,13 +1,16 @@
-"""Host tests for the compose pass-fusion (Wave 5).
+"""Host tests for the compose pass-fusion (Wave 5) and hook/flash wiring.
 
-Two merges cut a fully-toggled compose from 5 to 3 encode generations without
-touching the load-bearing Grade → Subtitles → Smart Cut → Hook → Logo order:
+The grade+subtitles merge cuts a fully-toggled compose from 5 to 3 encode
+generations without touching the load-bearing
+Grade -> Subtitles -> Smart Cut -> Logo -> Banner -> Hook (flash) order:
 
 * grade+subtitles: the grade chain rides as ``pre_vf`` on the subtitle burn —
   inside one filtergraph the colour transform still hits the source pixels
   BEFORE the glyphs are composited (identical semantics).
-* hook+logo: both are static overlays after Smart Cut; one filter_complex
-  composites hook below, logo topmost (identical z-order).
+
+Hook is no longer an on-video overlay — turning it on renders the flash-intro
+card instead (see hooks.add_intro_flash), always as its own last pass; logo
+is always its own standalone on-video pass.
 
 ffmpeg itself is exercised by the Docker integration suite; here the command
 assembly and the compose_layers wiring are pinned with fakes.
@@ -17,24 +20,10 @@ import os
 
 from clippyme.domain import compose
 from clippyme.domain import subtitles as subtitles_module
-from clippyme.domain.hooks import build_hook_logo_filter
 from clippyme.domain.logo import logo_filter_chain
 
 
 # --- pure filter builders ----------------------------------------------------
-
-def test_hook_logo_filter_static_structure():
-    f = build_hook_logo_filter(10, 20, "scale=100:-1", "5", "7")
-    # Hook composites first ([vh]), logo chain feeds [lg], logo overlays LAST
-    # (topmost) — the z-order the sequential Hook → Logo passes produced.
-    assert f == "[0:v][1:v]overlay=10:20[vh];[2:v]scale=100:-1[lg];[vh][lg]overlay=5:7"
-
-
-def test_hook_logo_filter_animated_keeps_entrance():
-    f = build_hook_logo_filter(10, 20, "c", "5", "7", animate=True)
-    assert "fade=t=in" in f and "pow(1-min(t/0.4\\,1)\\,3)" in f
-    assert f.endswith(";[2:v]c[lg];[vh][lg]overlay=5:7")
-
 
 def test_logo_filter_chain_clamps_and_geometry():
     chain, x, y = logo_filter_chain(1000, scale=0.9, opacity=1.7, margin=0.04,
@@ -83,7 +72,7 @@ def test_burn_subtitles_without_pre_vf_unchanged(tmp_path, monkeypatch):
 def _run_compose(tmp_path, monkeypatch, toggles, **kwargs):
     base = tmp_path / "clip.mp4"
     base.write_bytes(b"fake")
-    calls = {"grade": 0, "logo": 0, "hook_logo_params": "unset", "pre_vf": "unset"}
+    calls = {"grade": 0, "logo": 0, "flash": 0, "flash_text": "unset", "pre_vf": "unset"}
 
     async def fake_grade(current_input, job_dir, clip_index, grade_params, files):
         calls["grade"] += 1
@@ -98,23 +87,24 @@ def _run_compose(tmp_path, monkeypatch, toggles, **kwargs):
         files.append(out)
         return out
 
-    async def fake_hook(current_input, job_dir, clip_index, hook_params, files,
-                        logo_params=None, reframe_mode=None):
-        calls["hook_logo_params"] = logo_params
-        out = os.path.join(job_dir, "hooked.mp4")
-        with open(out, "wb") as f:
-            f.write(b"h")
-        files.append(out)
-        return out
-
     async def fake_logo(current_input, job_dir, clip_index, logo_params, files):
         calls["logo"] += 1
         return current_input
 
+    async def fake_flash(current_input, base_clip, job_dir, clip_index, hook_params, files,
+                        metadata=None, clip_info=None):
+        calls["flash"] += 1
+        calls["flash_text"] = hook_params.get("text")
+        out = os.path.join(job_dir, "flashed.mp4")
+        with open(out, "wb") as f:
+            f.write(b"f")
+        files.append(out)
+        return out
+
     monkeypatch.setattr(compose, "_apply_grade", fake_grade)
     monkeypatch.setattr(compose, "_apply_subtitles", fake_subs)
-    monkeypatch.setattr(compose, "_apply_hook", fake_hook)
     monkeypatch.setattr(compose, "_apply_logo", fake_logo)
+    monkeypatch.setattr(compose, "_apply_intro_flash", fake_flash)
 
     async def no_eval(*a, **k):
         return None
@@ -163,7 +153,31 @@ def test_unknown_grade_preset_falls_back_to_standalone_noop(tmp_path, monkeypatc
     assert calls["pre_vf"] is None
 
 
-def test_hook_and_logo_fuse_into_one_pass(tmp_path, monkeypatch):
+def test_logo_alone_keeps_its_own_pass(tmp_path, monkeypatch):
+    logo_png = tmp_path / "logo.png"
+    logo_png.write_bytes(b"\x89PNG")
+    monkeypatch.setattr(compose, "LOGO_PATH", str(logo_png))
+    _, calls = _run_compose(tmp_path, monkeypatch, {"logo": True},
+                            logo_params={"size": "M"})
+    assert calls["logo"] == 1
+    assert calls["flash"] == 0
+
+
+# --- hook renders ONLY as the flash-intro card, never on-video --------------
+
+def test_hook_renders_as_flash_not_on_video_overlay(tmp_path, monkeypatch):
+    _, calls = _run_compose(
+        tmp_path, monkeypatch,
+        {"hook": True},
+        hook_params={"text": "WATCH"},
+    )
+    assert calls["flash"] == 1
+    assert calls["flash_text"] == "WATCH"
+
+
+def test_hook_and_logo_apply_independently(tmp_path, monkeypatch):
+    # No more hook+logo fusion (that was an on-video-overlay-only optimisation)
+    # — logo is always its own pass, hook always renders as its own flash pass.
     logo_png = tmp_path / "logo.png"
     logo_png.write_bytes(b"\x89PNG")
     monkeypatch.setattr(compose, "LOGO_PATH", str(logo_png))
@@ -173,21 +187,12 @@ def test_hook_and_logo_fuse_into_one_pass(tmp_path, monkeypatch):
         hook_params={"text": "WATCH"},
         logo_params={"position": "top-right", "size": "M"},
     )
-    assert calls["logo"] == 0, "standalone logo pass must be skipped when fused"
-    assert calls["hook_logo_params"] is not None
-    assert calls["hook_logo_params"] != "unset"
-
-
-def test_logo_alone_keeps_its_own_pass(tmp_path, monkeypatch):
-    logo_png = tmp_path / "logo.png"
-    logo_png.write_bytes(b"\x89PNG")
-    monkeypatch.setattr(compose, "LOGO_PATH", str(logo_png))
-    _, calls = _run_compose(tmp_path, monkeypatch, {"logo": True},
-                            logo_params={"size": "M"})
     assert calls["logo"] == 1
+    assert calls["flash"] == 1
+    assert calls["flash_text"] == "WATCH"
 
 
-def test_hook_without_text_still_applies_logo_standalone(tmp_path, monkeypatch):
+def test_hook_without_text_skips_flash_but_logo_still_applies(tmp_path, monkeypatch):
     logo_png = tmp_path / "logo.png"
     logo_png.write_bytes(b"\x89PNG")
     monkeypatch.setattr(compose, "LOGO_PATH", str(logo_png))
@@ -197,37 +202,5 @@ def test_hook_without_text_still_applies_logo_standalone(tmp_path, monkeypatch):
         hook_params={"text": "   "},
         logo_params={"size": "M"},
     )
-    assert calls["hook_logo_params"] == "unset", "hook layer must be skipped"
+    assert calls["flash"] == 0, "hook layer must be skipped when text is blank"
     assert calls["logo"] == 1
-
-
-# --- _apply_hook duration: first-4s window, except letterbox reframe -------
-
-def test_apply_hook_duration_by_reframe_mode(tmp_path, monkeypatch):
-    captured = []
-
-    def fake_add_hook_to_video(video_path, text, output_path, position,
-                               font_scale, offset_y, style, logo, hook_duration):
-        captured.append(hook_duration)
-        with open(output_path, "wb") as f:
-            f.write(b"h")
-        return True
-
-    monkeypatch.setattr(
-        "clippyme.domain.hooks.add_hook_to_video", fake_add_hook_to_video,
-    )
-    clip = tmp_path / "clip.mp4"
-    clip.write_bytes(b"in")
-
-    for reframe_mode, expected in (
-        ("disabled", None),
-        ("auto", 4),
-        ("subject", 4),
-        ("object", 4),
-        (None, 4),
-    ):
-        asyncio.run(compose._apply_hook(
-            str(clip), str(tmp_path), 0, {"text": "hi"}, [],
-            reframe_mode=reframe_mode,
-        ))
-    assert captured == [None, 4, 4, 4, 4]

@@ -38,8 +38,11 @@ export async function submitProcessJob(data, apiKey, { signal } = {}) {
   const aspect = data.preselections?.aspect;
   const noZoom = data.preselections?.no_zoom === true;
   const letterboxZoom = Number(data.preselections?.letterbox_zoom) || 0;
+  const letterboxFill = data.preselections?.letterbox_fill;
   const skipAnalysis = data.preselections?.skip_analysis === true;
   const model = (data.preselections?.model || '').trim();
+  const targetClips = Number(data.preselections?.target_clips) || 0;
+  const recipe = data.recipe || null;
 
   if (data.type === 'url') {
     headers['Content-Type'] = 'application/json';
@@ -47,11 +50,14 @@ export async function submitProcessJob(data, apiKey, { signal } = {}) {
     if (data.instructions) jsonBody.instructions = data.instructions;
     if (reframeMode) jsonBody.reframe_mode = reframeMode;
     if (letterboxZoom) jsonBody.letterbox_zoom = letterboxZoom;
+    if (letterboxFill && letterboxFill !== 'black') jsonBody.letterbox_fill = letterboxFill;
     if (aspect && aspect !== '9:16') jsonBody.aspect = aspect;
     if (language) jsonBody.language = language;
     if (noZoom) jsonBody.no_zoom = true;
     if (skipAnalysis) jsonBody.skip_analysis = true;
     if (model) jsonBody.model = model;
+    if (targetClips) jsonBody.target_clips = targetClips;
+    if (recipe) jsonBody.recipe = recipe;
     body = JSON.stringify(jsonBody);
   } else {
     if (data.payload?.size > 16 * 1024 * 1024 * 1024) throw new Error('File too large. Maximum size is 16 GB.');
@@ -60,11 +66,14 @@ export async function submitProcessJob(data, apiKey, { signal } = {}) {
     if (data.instructions) formData.append('instructions', data.instructions);
     if (reframeMode) formData.append('reframe_mode', reframeMode);
     if (letterboxZoom) formData.append('letterbox_zoom', String(letterboxZoom));
+    if (letterboxFill && letterboxFill !== 'black') formData.append('letterbox_fill', letterboxFill);
     if (aspect && aspect !== '9:16') formData.append('aspect', aspect);
     if (language) formData.append('language', language);
     if (noZoom) formData.append('no_zoom', 'true');
     if (skipAnalysis) formData.append('skip_analysis', 'true');
     if (model) formData.append('model', model);
+    if (targetClips) formData.append('target_clips', String(targetClips));
+    if (recipe) formData.append('recipe', JSON.stringify(recipe));
     body = formData;
   }
 
@@ -77,12 +86,15 @@ export async function submitBatchJob(data, apiKey, { signal } = {}) {
   const batchBody = { urls: data.urls, instructions: data.instructions };
   if (data.preselections?.reframe_mode) batchBody.reframe_mode = data.preselections.reframe_mode;
   if (Number(data.preselections?.letterbox_zoom)) batchBody.letterbox_zoom = Number(data.preselections.letterbox_zoom);
+  if (data.preselections?.letterbox_fill && data.preselections.letterbox_fill !== 'black') batchBody.letterbox_fill = data.preselections.letterbox_fill;
   if (data.preselections?.aspect && data.preselections.aspect !== '9:16') batchBody.aspect = data.preselections.aspect;
   const language = pickLanguage(data.preselections);
   if (language) batchBody.language = language;
   if (data.preselections?.no_zoom === true) batchBody.no_zoom = true;
   if (data.preselections?.skip_analysis === true) batchBody.skip_analysis = true;
   if ((data.preselections?.model || '').trim()) batchBody.model = data.preselections.model.trim();
+  if (Number(data.preselections?.target_clips)) batchBody.target_clips = Number(data.preselections.target_clips);
+  if (data.recipe) batchBody.recipe = data.recipe;
   const res = await apiFetch(getApiUrl('/api/batch'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Gemini-Key': apiKey },

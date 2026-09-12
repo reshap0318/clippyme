@@ -30,7 +30,11 @@ from clippyme.pipeline.preflight import (
     enforce_preflight,
     format_preflight_log,
 )
-from clippyme.pipeline.reframe_ops import normalize_letterbox_zoom
+from clippyme.pipeline.reframe_ops import (
+    clip_relative_speech_spans,
+    normalize_letterbox_fill,
+    normalize_letterbox_zoom,
+)
 from clippyme.pipeline.run_ops import (
     build_cut_command,
     clip_output_basename,
@@ -152,11 +156,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="auto",
     )
     parser.add_argument("--letterbox-zoom", type=float, default=0.0)
+    parser.add_argument("--letterbox-fill", choices=["black", "blur"], default="black")
     parser.add_argument("--start-offset", type=float, default=0.0)
     parser.add_argument("--language", type=str, default=None)
     parser.add_argument("--aspect", choices=["9:16", "1:1", "16:9"], default="9:16")
     parser.add_argument("--monitor", action="store_true")
     parser.add_argument("--model", type=str, default=None)
+    parser.add_argument("--target-clips", type=int, default=None)
+    parser.add_argument("--recipe", type=str, default=None)
     return parser.parse_args(argv)
 
 
@@ -393,6 +400,7 @@ def _load_or_analyze(
             transcript,
             duration,
             instructions=args.instructions,
+            target_clips=args.target_clips,
         )
         if not clips_data or "shorts" not in clips_data:
             if should_use_fallback(args.monitor):
@@ -421,6 +429,22 @@ def _load_or_analyze(
         )
         shorts = shorts[:max_clips]
         clips_data["shorts"] = shorts
+
+    # Create-time recipe seed (ProcessRequest.recipe, JSON-encoded onto argv by
+    # build_main_cmd) — written into every clip's `last_edit` right as the
+    # clip list comes into existence, so a clip nobody has opened in Edit yet
+    # still carries the Create-tab choice durably in metadata.json instead of
+    # only in the browser's local pre-selections cache (see
+    # clip_resolve.persist_clip_recipe for the same field compose/reframe use).
+    if args.recipe:
+        try:
+            recipe = json.loads(args.recipe)
+        except (TypeError, ValueError) as exc:
+            print(f"⚠️ Ignoring malformed --recipe: {exc}", flush=True)
+            recipe = None
+        if isinstance(recipe, dict):
+            for clip in shorts:
+                clip["last_edit"] = recipe
 
     if shorts and not args.skip_analysis:
         from clippyme.pipeline.cut_ops import flatten_words, snap_clips_to_transcript
@@ -496,6 +520,11 @@ def _render_one_clip(
 ) -> bool:
     start, end = _clip_bounds(clip)
     expected_duration = end - start
+    speech_spans = None
+    transcript = clips_data.get("transcript")
+    if transcript:
+        from clippyme.pipeline.cut_ops import flatten_words
+        speech_spans = clip_relative_speech_spans(flatten_words(transcript), start, end)
     title = clip.get("video_title_for_youtube_short") or clip.get("title")
     existing_name = _safe_clip_filename(clip.get("clip_filename"))
     clip_filename = existing_name or f"{clip_output_basename(title, index, video_title)}.mp4"
@@ -562,6 +591,8 @@ def _render_one_clip(
             zoom_end=None if args.no_zoom else 1.05,
             aspect_ratio=aspect_ratio,
             letterbox_zoom=normalize_letterbox_zoom(args.letterbox_zoom),
+            letterbox_fill=normalize_letterbox_fill(getattr(args, "letterbox_fill", None)),
+            speech_spans=speech_spans,
         )
         if not success or not _valid_file(temp_output, 10_000):
             last_report = {

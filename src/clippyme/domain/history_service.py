@@ -92,7 +92,16 @@ def scan_history(output_dir: str) -> List[dict]:
                         "publishedCount": published_count,
                     }
                 )
-            except Exception:
+            except Exception as e:
+                # Silent-but-logged: a single malformed/unreadable job must
+                # never take down the whole History tab, but a bare `except:
+                # continue` here once hid a real bug for a long time — every
+                # job from before a base-image swap silently vanished from
+                # history (PermissionError on metadata.json after appuser's
+                # UID shifted) with zero trace anywhere. debug, not warning:
+                # this runs per-directory on every /api/history call, so a
+                # louder level would spam the log for one truly bad entry.
+                logger.debug("scan_history: skipping %s (%s)", entry, e)
                 continue
     except Exception as e:
         logger.warning("Error scanning history: %s", e)

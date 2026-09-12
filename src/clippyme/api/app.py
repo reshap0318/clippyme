@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import uuid
@@ -36,7 +37,7 @@ from clippyme.domain.reframe_service import run_reframe
 from clippyme.domain.errors import ClippyMeError
 from clippyme.domain.uploads import stream_upload_within_limit, FileTooLarge
 from clippyme.domain.clip_endpoints import run_smart_cut, restore_job_from_disk
-from clippyme.domain.clip_resolve import resolve_clip
+from clippyme.domain.clip_resolve import persist_clip_recipe, resolve_clip
 from clippyme.domain import job_control
 from clippyme.domain.job_actions import cancel_job_action, stop_job_action
 from clippyme.domain.job_journal import JOURNAL_FILENAME, make_journal_writer, recover_jobs
@@ -312,11 +313,14 @@ async def process_endpoint(
     instructions = None
     reframe_mode = None
     letterbox_zoom = None
+    letterbox_fill = None
     aspect = None
     language = None
     no_zoom = False
     skip_analysis = False
     model = None
+    target_clips = None
+    recipe = None
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
         try:
@@ -330,17 +334,21 @@ async def process_endpoint(
         instructions = validated.instructions
         reframe_mode = validated.reframe_mode
         letterbox_zoom = validated.letterbox_zoom
+        letterbox_fill = validated.letterbox_fill
         aspect = validated.aspect
         language = validated.language
         no_zoom = bool(validated.no_zoom)
         skip_analysis = bool(validated.skip_analysis)
         model = validated.model
+        target_clips = validated.target_clips
+        recipe = validated.recipe
 
     # For multipart/form-data uploads, extract reframe_mode + language from form fields
     if "multipart/form-data" in content_type:
         form = await request.form()
         reframe_mode = form.get("reframe_mode", reframe_mode)
         letterbox_zoom = form.get("letterbox_zoom", letterbox_zoom)
+        letterbox_fill = form.get("letterbox_fill", letterbox_fill)
         aspect = form.get("aspect", aspect)
         language = form.get("language", language)
         # Also honour the optional instructions field in multipart mode
@@ -350,6 +358,18 @@ async def process_endpoint(
         no_zoom = str(form.get("no_zoom", "")).lower() in {"1", "true", "yes"} or no_zoom
         skip_analysis = str(form.get("skip_analysis", "")).lower() in {"1", "true", "yes"} or skip_analysis
         model = form.get("model", model) or None
+        raw_target_clips = form.get("target_clips")
+        if raw_target_clips not in (None, ""):
+            try:
+                target_clips = int(raw_target_clips)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="invalid target_clips")
+        raw_recipe = form.get("recipe")
+        if raw_recipe not in (None, ""):
+            try:
+                recipe = json.loads(raw_recipe)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="invalid recipe")
         # Validate the multipart values through the same schema for
         # consistency — we drop the url requirement since we're using
         # an uploaded file path.
@@ -358,12 +378,15 @@ async def process_endpoint(
                 "url": "https://upload.invalid/local",
                 "reframe_mode": reframe_mode or None,
                 "letterbox_zoom": letterbox_zoom or None,
+                "letterbox_fill": letterbox_fill or None,
                 "aspect": aspect or None,
                 "language": language or None,
                 "instructions": instructions or None,
                 "no_zoom": no_zoom,
                 "skip_analysis": skip_analysis,
                 "model": model or None,
+                "target_clips": target_clips,
+                "recipe": recipe,
             })
         except ValidationError as exc:
             raise HTTPException(status_code=400, detail=exc.errors())
@@ -421,12 +444,15 @@ async def process_endpoint(
             instructions=instructions,
             reframe_mode=reframe_mode,
             letterbox_zoom=letterbox_zoom,
+            letterbox_fill=letterbox_fill,
             aspect=aspect,
             cookies_path=os.path.join("data", "cookies.txt"),
             language=language,
             no_zoom=no_zoom,
             skip_analysis=skip_analysis,
             model=model,
+            target_clips=target_clips,
+            recipe=recipe,
         )
     except ValueError as exc:
         await asyncio.to_thread(shutil.rmtree, job_output_dir, True)
@@ -475,12 +501,15 @@ async def batch_process(req: BatchRequest, request: Request):
                 instructions=req.instructions,
                 reframe_mode=req.reframe_mode,
                 letterbox_zoom=req.letterbox_zoom,
+                letterbox_fill=req.letterbox_fill,
                 aspect=getattr(req, "aspect", None),
                 cookies_path=os.path.join("data", "cookies.txt"),
                 language=getattr(req, "language", None),
                 no_zoom=bool(getattr(req, "no_zoom", False)),
                 skip_analysis=bool(getattr(req, "skip_analysis", False)),
                 model=getattr(req, "model", None),
+                target_clips=getattr(req, "target_clips", None),
+                recipe=getattr(req, "recipe", None),
             )
         except ValueError as exc:
             # This item's output dir was already created above but it never
@@ -748,6 +777,7 @@ async def reframe_clip(job_id: str, clip_index: int, req: ReframeRequest, reques
     return await run_reframe(
         job_id=job_id, clip_index=clip_index, mode=mode,
         letterbox_zoom=req.letterbox_zoom,
+        letterbox_fill=req.letterbox_fill,
         output_root=OUTPUT_DIR, jobs=jobs,
     )
 
@@ -831,6 +861,25 @@ async def compose_clip(job_id: str, clip_index: int, req: ComposeRequest, reques
             banner_params=req.banner_params,
             drop_ranges=req.drop_ranges,
         )
+        try:
+            await asyncio.to_thread(
+                persist_clip_recipe, resolved,
+                {
+                    "toggles": req.toggles, "hook_params": req.hook_params,
+                    "subtitle_params": req.subtitle_params, "logo_params": req.logo_params,
+                    "grade_params": req.grade_params, "banner_params": req.banner_params,
+                    "drop_ranges": req.drop_ranges,
+                },
+            )
+        except Exception:
+            # Best-effort: the compose itself already succeeded and returned a
+            # valid file, so a metadata-write hiccup shouldn't fail the whole
+            # request — it only means the next reload/publish falls back to
+            # whatever it seeded from before (not a corrupted/half-written clip).
+            logger.warning(
+                "Failed to persist edit recipe for job %s clip %d", job_id, clip_index,
+                exc_info=True,
+            )
         return {"composed_url": f"/videos/{job_id}/{composed_filename}"}
     except (HTTPException, ClippyMeError):
         raise

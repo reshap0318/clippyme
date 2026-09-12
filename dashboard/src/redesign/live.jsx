@@ -103,6 +103,8 @@ function MonitorSettings({ monitor, onApply, applying }) {
   const [smartCutTouched, setSmartCutTouched] = useState(false);
   const [zoom, setZoom] = useState(zoomToPercent(cfg.letterbox_zoom));
   const [zoomTouched, setZoomTouched] = useState(false);
+  const [fill, setFill] = useState(cfg.letterbox_fill || 'black');
+  const [fillTouched, setFillTouched] = useState(false);
   const [reframeMode, setReframeMode] = useState(cfg.reframe_mode === 'object' ? 'subject' : (cfg.reframe_mode || 'disabled'));
   const [reframeModeTouched, setReframeModeTouched] = useState(false);
 
@@ -122,6 +124,7 @@ function MonitorSettings({ monitor, onApply, applying }) {
     if (minScore !== '') partial.min_viral_score = bounded.min_viral_score;
     if (smartCutTouched) partial.smart_cut = smartCut;
     if (zoomTouched) partial.letterbox_zoom = zoom;
+    if (fillTouched) partial.letterbox_fill = fill;
     if (reframeModeTouched) partial.reframe_mode = reframeMode;
     onApply(monitor.id, partial);
   };
@@ -205,6 +208,14 @@ function MonitorSettings({ monitor, onApply, applying }) {
           <Segmented full value={String(zoom)}
             onChange={(v) => { setZoom(Number(v)); setZoomTouched(true); }}
             options={ZOOM_OPTIONS} />
+        </div>
+      )}
+      {reframeMode === 'disabled' && (
+        <div className="field">
+          <span className="field-label">Background</span>
+          <Segmented full value={fill}
+            onChange={(v) => { setFill(v); setFillTouched(true); }}
+            options={[{ id: 'black', label: 'Black' }, { id: 'blur', label: 'Blur' }]} />
         </div>
       )}
       <div className="opt" style={{ borderBottom: 0, paddingLeft: 0, paddingRight: 0 }}>
@@ -297,6 +308,7 @@ export function LiveMonitorView({ pushToast }) {
   const [smartCut, setSmartCut] = useState(false);
   const [reframeMode, setReframeMode] = useState('disabled');
   const [zoom, setZoom] = useState(0);
+  const [fill, setFill] = useState('black');
   const [subOn, setSubOn] = useState(false);
   const [sub, setSub] = useState(SUB_DEFAULTS);
   const [starting, setStarting] = useState(false);
@@ -335,6 +347,7 @@ export function LiveMonitorView({ pushToast }) {
         smart_cut: smartCut,
         reframe_mode: reframeMode,
         letterbox_zoom: zoom,
+        letterbox_fill: fill,
         caption_template: captionTemplate,
         title_template: titleTemplate,
         instructions,
@@ -515,6 +528,15 @@ export function LiveMonitorView({ pushToast }) {
                 ? `Crops ${zoom}% off the sides — bigger picture, smaller black bars.`
                 : 'Whole frame between the black bars, nothing cropped.'}
             </div>
+          </div>
+        )}
+
+        {reframeMode === 'disabled' && (
+          <div className="field">
+            <span className="field-label">Background</span>
+            <Segmented full value={fill} onChange={setFill}
+              options={[{ id: 'black', label: 'Black' }, { id: 'blur', label: 'Blur' }]} />
+            <div className="od">Solid black bars, or a blurred copy of the video filling the space.</div>
           </div>
         )}
 

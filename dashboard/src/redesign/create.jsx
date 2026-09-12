@@ -327,6 +327,18 @@ function OptionsPanel({ opts, set }) {
             options={[{ id: '0', label: 'Off' }, { id: '5', label: '5%' }, { id: '10', label: '10%' }, { id: '15', label: '15%' }]} /></div>
         </div>
       )}
+      {((opts.reframeMode === 'disabled') || (!opts.reframeMode && opts.reframe === false)) && (
+        <div className="opt">
+          <div className="oico"><Icon n="image" /></div>
+          <div className="otxt">
+            <div className="ot">Background</div>
+            <div className="od">Solid black bars, or a blurred copy of the video filling the space</div>
+          </div>
+          <div className="r"><Segmented value={opts.letterboxFill || 'black'}
+            onChange={(id) => set({ letterboxFill: id })}
+            options={[{ id: 'black', label: 'Black' }, { id: 'blur', label: 'Blur' }]} /></div>
+        </div>
+      )}
       <OptRow icon="scissors" label="Smart cut" desc="Remove silence & filler words"
         on={opts.smartcut} set={(v) => set({ smartcut: v })} />
       <OptRow icon="zoom-in" label="Subtle zoom" desc="Gentle Ken Burns motion (1.0→1.05x)"
@@ -345,7 +357,7 @@ function OptionsPanel({ opts, set }) {
       <OptRow icon="captions" label="Subtitles" desc="Burn karaoke or classic captions"
         on={opts.subtitles} set={(v) => set({ subtitles: v })} onConfig={() => setSubCfg(!subCfg)} configActive={subCfg} />
       {opts.subtitles && subCfg && <SubConfig opts={opts} set={set} />}
-      <OptRow icon="type" label="Text hooks" desc="Add a scroll-stopping opener"
+      <OptRow icon="type" label="Text hooks" desc="0.5s flash-intro card with your hook text before the clip starts"
         on={opts.hooks} set={(v) => set({ hooks: v })} onConfig={() => setHookCfg(!hookCfg)} configActive={hookCfg} />
       {opts.hooks && hookCfg && <HookConfig opts={opts} set={set} />}
       <OptRow icon="stamp" label="Brand logo" desc="Burn your logo onto every clip"

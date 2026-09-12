@@ -44,6 +44,21 @@ def test_build_viral_prompt_embeds_duration_and_words():
     assert len(words) == 2
 
 
+def test_no_target_clips_keeps_the_open_range():
+    prompt, _ = build_viral_prompt(TRANSCRIPT, 123.4)
+    assert "the 3–15 MOST VIRAL" in prompt
+    assert "approximately" not in prompt
+
+
+def test_target_clips_becomes_a_soft_primary_instruction():
+    prompt, _ = build_viral_prompt(TRANSCRIPT, 123.4, target_clips=5)
+    assert "approximately 5 of the MOST VIRAL" in prompt
+    assert "the 3–15 MOST VIRAL" not in prompt
+    # Explicitly non-binding language, not phrased as a hard requirement.
+    assert "fewer is fine" in prompt
+    assert "never pad with a weak clip" in prompt
+
+
 # --- TOON word encoding ----------------------------------------------------
 
 def test_encode_words_toon_header_and_plain_rows():

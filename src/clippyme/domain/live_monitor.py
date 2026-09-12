@@ -284,6 +284,15 @@ def _letterbox_zoom_or_zero(value) -> float:
         return 0.0
 
 
+def _letterbox_fill_or_black(value) -> str:
+    """Same defence-in-depth as _letterbox_zoom_or_zero: garbage → 'black'."""
+    from clippyme.pipeline.reframe_ops import normalize_letterbox_fill
+    try:
+        return normalize_letterbox_fill(value)
+    except (TypeError, ValueError):
+        return "black"
+
+
 def _validate_bool(value, field: str) -> bool:
     if not isinstance(value, bool):
         raise ValidationError(f"{field} must be a boolean")
@@ -382,6 +391,8 @@ def validate_monitor_config(config: dict, default_timezone: str = "Asia/Jakarta"
         # Fixed zoom on the letterbox render — only applied when reframe_mode
         # stays 'disabled'. 0 = whole frame between the bars, else 0.05-0.15.
         "letterbox_zoom": _letterbox_zoom_or_zero(config.get("letterbox_zoom")),
+        # Bar fill for the same letterbox render: 'black' (default) or 'blur'.
+        "letterbox_fill": _letterbox_fill_or_black(config.get("letterbox_fill")),
         # 'disabled' (default) keeps the monitor's original letterbox layout;
         # 'auto'/'subject' hand off to the same face-track/FrameShift crop the
         # manual create flow uses — compose.py already keys hook duration,
@@ -397,7 +408,7 @@ _UPDATABLE_CONFIG_FIELDS = (
     "instructions", "caption_template", "title_template", "min_gap_seconds",
     "segment_seconds", "prelive_skip_seconds", "platforms", "banner", "compose",
     "poll_interval", "delete_after_publish", "max_clips", "clip_selection",
-    "min_viral_score", "smart_cut", "letterbox_zoom", "reframe_mode",
+    "min_viral_score", "smart_cut", "letterbox_zoom", "letterbox_fill", "reframe_mode",
 )
 
 # The full set of cfg keys worth persisting/restoring (mirrors
@@ -408,7 +419,7 @@ _SNAPSHOT_CONFIG_FIELDS = (
     "instructions", "caption_template", "title_template", "timezone",
     "banner", "compose", "catchup", "delete_after_publish", "max_clips",
     "clip_selection", "min_viral_score", "smart_cut", "letterbox_zoom",
-    "reframe_mode",
+    "letterbox_fill", "reframe_mode",
 )
 
 
@@ -1235,6 +1246,7 @@ class LiveMonitor:
         cmd = build_main_cmd(input_path=os.path.abspath(seg_path), output_dir=job_dir,
                              reframe_mode=reframe_mode,
                              letterbox_zoom=self.cfg.get("letterbox_zoom") or 0,
+                             letterbox_fill=self.cfg.get("letterbox_fill") or "black",
                              instructions=self.cfg.get("instructions") or None,
                              monitor=True)
         await submit_job(
@@ -1263,6 +1275,7 @@ class LiveMonitor:
         cmd = build_main_cmd(url=url, output_dir=job_dir, cookies_path=cookies_path,
                              reframe_mode=self.cfg.get("reframe_mode") or "disabled",
                              letterbox_zoom=self.cfg.get("letterbox_zoom") or 0,
+                             letterbox_fill=self.cfg.get("letterbox_fill") or "black",
                              start_offset=self._vod_start_offset(),
                              instructions=self.cfg.get("instructions") or None,
                              monitor=True)

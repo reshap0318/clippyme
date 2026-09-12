@@ -27,6 +27,7 @@ from clippyme.pipeline.reframe_ops import (
     salient_crop_center,
 )
 from clippyme.pipeline.cut_ops import DEFAULT_MAX_CLIP_DURATION, DEFAULT_MIN_CLIP_DURATION
+from clippyme import schemas
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='google.protobuf')
@@ -478,26 +479,20 @@ def transcribe_video(video_path):
                     pass
 
 def _max_clip_duration() -> float:
-    """CLIPPYME_MAX_CLIP_DURATION overrides the 60s default. Read by both
+    """CLIPPYME_MAX_CLIP_DURATION overrides the 180s default. Read by both
     get_viral_clips (Gemini's picking budget) and the sentence-snap extension
     ceiling in main() below, so the two always agree — raising just one would
-    leave Gemini capped at 60s while the snap stage has unused headroom, or
-    vice versa let the snap stage overshoot what Gemini was told it could pick.
+    leave Gemini capped while the snap stage has unused headroom, or vice
+    versa let the snap stage overshoot what Gemini was told it could pick.
     """
-    try:
-        return float(os.getenv("CLIPPYME_MAX_CLIP_DURATION") or DEFAULT_MAX_CLIP_DURATION)
-    except ValueError:
-        return DEFAULT_MAX_CLIP_DURATION
+    return schemas.clip_duration_bounds(DEFAULT_MIN_CLIP_DURATION, DEFAULT_MAX_CLIP_DURATION)[1]
 
 
 def _min_clip_duration() -> float:
     """CLIPPYME_MIN_CLIP_DURATION overrides the 75s default floor Gemini is
     told to respect when picking clips. See _max_clip_duration.
     """
-    try:
-        return float(os.getenv("CLIPPYME_MIN_CLIP_DURATION") or DEFAULT_MIN_CLIP_DURATION)
-    except ValueError:
-        return DEFAULT_MIN_CLIP_DURATION
+    return schemas.clip_duration_bounds(DEFAULT_MIN_CLIP_DURATION, DEFAULT_MAX_CLIP_DURATION)[0]
 
 
 def _reaction_pad_seconds() -> float:
@@ -525,7 +520,7 @@ def _reaction_overlap_seconds() -> float:
 
 
 def get_viral_clips(transcript_result, video_duration, instructions=None, max_duration=None,
-                     min_duration=None):
+                     min_duration=None, target_clips=None):
     print("🤖  Analyzing with Gemini...")
     get_viral_clips._last_gemini_exhausted = False
 
@@ -553,6 +548,7 @@ def get_viral_clips(transcript_result, video_duration, instructions=None, max_du
         creator=os.getenv("CLIPPYME_CREATOR_NAME"),
         max_duration=max_duration if max_duration is not None else _max_clip_duration(),
         min_duration=min_duration if min_duration is not None else _min_clip_duration(),
+        target_clips=target_clips,
     )
 
     if not words:
@@ -683,6 +679,16 @@ def get_viral_clips(transcript_result, video_duration, instructions=None, max_du
             print("❌ No clips cleared the viral_score floor")
             return None
 
+        # Per-job "Set N clips" target (Create tab, not Auto) — a soft prompt
+        # hint (see build_viral_prompt's clip_count_instruction), so Gemini can
+        # still come back over or under. Under is accepted as-is (never an
+        # error/padded); over is trimmed here by score, same top-N-by-score
+        # rule as the env-level cap above, just per-job instead of server-wide.
+        if target_clips and target_clips > 0 and len(clips) > target_clips:
+            _before = len(clips)
+            clips = cap_clips_by_score(clips, target_clips)
+            print(f"✂️  Target clips: {_before} → {len(clips)} (target={target_clips}).")
+
         # Ensure every clip has a viral_hook_text. Logic lives in
         # gemini_parser.backfill_hook_text so both the main pipeline AND
         # the metadata-reload path in job_results.py use the exact same
@@ -757,6 +763,9 @@ if __name__ == '__main__':
     parser.add_argument('--letterbox-zoom', type=float, default=0.0,
                         help="Fixed zoom for --reframe-mode disabled: 0 = whole frame between the "
                              "black bars, 0.05-0.15 (or 5-15) crops that fraction off the width.")
+    parser.add_argument('--letterbox-fill', choices=['black', 'blur'], default='black',
+                        help="Bar fill for --reframe-mode disabled: black (default) or blur "
+                             "(cover-fit blurred copy of the frame instead of empty black).")
     parser.add_argument('--reframe-only', action='store_true',
                         help='Skip download/analysis/cutting: take --input (an existing 16:9 '
                              'source slice) and re-run reframing + zoom/normalize/cover only. '
@@ -775,6 +784,10 @@ if __name__ == '__main__':
                         help="Override the Gemini model for viral detection on THIS job (e.g. "
                              "'gemini-2.5-pro', 'gemini-3.1-pro-preview'). When unset, the pipeline uses "
                              "GEMINI_MODEL from env / Settings (default gemini-3.5-flash).")
+    parser.add_argument('--target-clips', type=int, default=None,
+                        help="Soft per-job clip-count target (Create tab 'Set N', not Auto). "
+                             "A soft prompt hint, not a hard cap: Gemini can still come back "
+                             "with fewer (accepted as-is) or more (trimmed by viral_score).")
 
     args = parser.parse_args()
 
@@ -863,7 +876,8 @@ if __name__ == '__main__':
             success = process_video_to_vertical(
                 args.input, tmp_output, reframe_mode=args.reframe_mode,
                 zoom_end=None if args.no_zoom else 1.05,
-                aspect_ratio=aspect_ratio, letterbox_zoom=letterbox_zoom)
+                aspect_ratio=aspect_ratio, letterbox_zoom=letterbox_zoom,
+                letterbox_fill=args.letterbox_fill)
             if not success:
                 print("❌ Reframe failed.")
                 if os.path.exists(tmp_output):
@@ -915,7 +929,8 @@ if __name__ == '__main__':
         print("⏩ Skipping analysis, processing entire video...")
         output_file = args.output if args.output else os.path.join(output_dir, f"{video_title}_vertical.mp4")
         process_video_to_vertical(input_video, output_file, reframe_mode=args.reframe_mode,
-                                  aspect_ratio=aspect_ratio, letterbox_zoom=letterbox_zoom)
+                                  aspect_ratio=aspect_ratio, letterbox_zoom=letterbox_zoom,
+                                  letterbox_fill=args.letterbox_fill)
     else:
         # 3. Transcribe (with cache for URL-based jobs)
         cached = _load_cached_transcript(args.url) if args.url else None
@@ -945,7 +960,8 @@ if __name__ == '__main__':
         # 4. Gemini Analysis
         clips_data = get_viral_clips(transcript, duration, instructions=args.instructions,
                                      max_duration=max_clip_duration,
-                                     min_duration=min_clip_duration)
+                                     min_duration=min_clip_duration,
+                                     target_clips=getattr(args, 'target_clips', None))
 
         # Smarter no-AI fallback: when Gemini is unavailable (no key) or its
         # output is unusable, segment the transcript into topic-coherent clips
@@ -976,7 +992,8 @@ if __name__ == '__main__':
                 print("❌ Failed to identify clips. Converting whole video as fallback.")
                 output_file = os.path.join(output_dir, f"{video_title}_vertical.mp4")
                 process_video_to_vertical(input_video, output_file, reframe_mode=args.reframe_mode,
-                                          aspect_ratio=aspect_ratio, letterbox_zoom=letterbox_zoom)
+                                          aspect_ratio=aspect_ratio, letterbox_zoom=letterbox_zoom,
+                                          letterbox_fill=args.letterbox_fill)
         else:
             print(f"🔥 Found {len(clips_data['shorts'])} viral clips!")
             
@@ -995,6 +1012,7 @@ if __name__ == '__main__':
             # (snap_clips_to_transcript / compute_neighbor_bounds) — here we
             # only probe the silences and print the returned events.
             from clippyme.pipeline.cut_ops import flatten_words, snap_clips_to_transcript
+            from clippyme.pipeline.reframe_ops import clip_relative_speech_spans
             _words = flatten_words(transcript)
             # Audio-aware final polish: detect the WAVEFORM silence troughs once
             # for the whole source, then nudge each transcript-snapped edge into
@@ -1117,7 +1135,9 @@ if __name__ == '__main__':
                     clip_source_path, clip_final_path,
                     reframe_mode=args.reframe_mode,
                     zoom_end=None if args.no_zoom else 1.05,
-                    aspect_ratio=aspect_ratio, letterbox_zoom=letterbox_zoom)
+                    aspect_ratio=aspect_ratio, letterbox_zoom=letterbox_zoom,
+                    letterbox_fill=args.letterbox_fill,
+                    speech_spans=clip_relative_speech_spans(_words, float(start), float(end)))
 
                 if success:
                     normalize_audio(clip_final_path)

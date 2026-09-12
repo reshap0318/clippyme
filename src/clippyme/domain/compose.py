@@ -20,7 +20,7 @@ from clippyme.domain.smartcut import smart_cut
 from clippyme.domain.subtitles import generate_ass_karaoke, generate_srt, burn_subtitles
 
 
-_SIZE_MAP = {"S": 0.8, "M": 1.0, "L": 1.3}
+_SIZE_MAP = {"S": 1.6, "M": 2.0, "L": 2.6}
 
 # Persisted brand logo (uploaded via /api/config/logo). Overridable for tests.
 LOGO_PATH = os.environ.get("CLIPPYME_LOGO_PATH") or os.path.join("data", "logo.png")
@@ -165,63 +165,6 @@ async def _apply_smartcut(
     return sc_output or current_input
 
 
-async def _apply_hook(
-    current_input: str,
-    job_dir: str,
-    clip_index: int,
-    hook_params: dict,
-    intermediate_files: list,
-    logo_params: dict = None,
-    reframe_mode: str = None,
-) -> str:
-    """Hook overlay pass. When ``logo_params`` is given the brand logo is
-    composited in the SAME encode (hook below, logo topmost — identical
-    z-order to the sequential Hook → Logo passes, one generation cheaper).
-
-    The hook is visible for the first 4s of the clip only, EXCEPT when
-    ``reframe_mode`` is the literal 'disabled' (letterbox) — full clip then."""
-    from clippyme.domain.hooks import add_hook_to_video
-
-    hook_duration = None if reframe_mode == "disabled" else 4
-
-    hook_output = os.path.join(job_dir, f"composed_hook_{clip_index}.mp4")
-    intermediate_files.append(hook_output)
-    position = hook_params.get("position", "top")
-    font_scale = _SIZE_MAP.get(hook_params.get("size", "M"), 1.0)
-    offset_y = hook_params.get("offset_y", 0)
-    # Instagram-Stories-style text customisation. Only forward keys the user
-    # actually set so create_hook_image's defaults fill the rest.
-    _style_keys = ("text_color", "bg_enabled", "bg_color", "bg_opacity",
-                   "corner_radius", "outline_color", "outline_width", "font", "shadow",
-                   "animate")
-    style = {k: hook_params[k] for k in _style_keys if k in hook_params}
-    logo = None
-    if logo_params is not None:
-        lp = logo_params or {}
-        logo = {
-            "path": LOGO_PATH,
-            "position": lp.get("position"),
-            "scale": lp.get("scale", _LOGO_SIZE_MAP.get(lp.get("size"), 0.18)),
-            "opacity": lp.get("opacity", 1.0),
-            "margin": lp.get("margin", 0.04),
-        }
-        from clippyme.domain.logo import DEFAULT_POSITION
-        logo["position"] = logo["position"] or DEFAULT_POSITION
-    await asyncio.to_thread(
-        add_hook_to_video,
-        current_input,
-        hook_params["text"],
-        hook_output,
-        position,
-        font_scale,
-        offset_y,
-        style or None,
-        logo,
-        hook_duration,
-    )
-    return hook_output
-
-
 async def _apply_banner(
     current_input: str,
     job_dir: str,
@@ -249,6 +192,69 @@ async def _apply_banner(
     intermediate_files.append(banner_output)
     await asyncio.to_thread(add_banner_to_video, current_input, bp, banner_output)
     return banner_output
+
+
+async def _apply_intro_flash(
+    current_input: str,
+    base_clip: str,
+    job_dir: str,
+    clip_index: int,
+    hook_params: dict,
+    intermediate_files: list,
+    metadata: dict = None,
+    clip_info: dict = None,
+) -> str:
+    """Sub-second title-card flash, prepended in front of the fully-composed
+    clip — absolutely last, so it wraps the finished output (subs/hook/logo/
+    banner included) rather than something an earlier layer would re-render
+    over. Reuses the hook's own text/style; empty text is a no-op (defensive
+    — the caller already gates on hook_params.text like the hook toggle does).
+
+    The flash's own background/avatar frame is extracted from ``base_clip``
+    (the PRE-compose render), never ``current_input`` — by this point in the
+    pipeline the on-video hook has already been burned onto the clip's first
+    few seconds, so grabbing frame 0 from the composed clip would bake that
+    hook text right into the blurred background and any detected face crop.
+
+    When ``metadata``/``clip_info`` carry a diarized transcript, each avatar
+    is tied to a moment inside that specific speaker's own talk window (see
+    hooks.add_intro_flash's ``speaker_windows``) instead of a generic
+    busiest-frame scan. ``hook_params["avatar_seed"]`` (default 0) rotates
+    which candidate window/frame is tried first per speaker — a "regenerate
+    avatars" action bumps this to land on a different frame deterministically.
+    """
+    from clippyme.domain.hooks import _speaker_time_windows, add_intro_flash
+
+    text = ((hook_params or {}).get("text") or "").strip()
+    if not text:
+        return current_input
+
+    font_scale = _SIZE_MAP.get(hook_params.get("size", "M"), 1.0)
+    _style_keys = ("text_color", "bg_enabled", "bg_color", "bg_opacity",
+                   "corner_radius", "outline_color", "outline_width", "font", "shadow")
+    style = {k: hook_params[k] for k in _style_keys if k in hook_params}
+    position = hook_params.get("position", "top")
+
+    transcript = (metadata or {}).get("transcript")
+    clip_start = (clip_info or {}).get("start", 0)
+    clip_end = (clip_info or {}).get("end", 0)
+    speaker_windows = (
+        _speaker_time_windows(transcript, clip_start, clip_end)
+        if transcript and clip_end > clip_start else {}
+    )
+
+    try:
+        avatar_seed = int(hook_params.get("avatar_seed") or 0)
+    except (TypeError, ValueError):
+        avatar_seed = 0
+
+    flash_output = os.path.join(job_dir, f"composed_flash_{clip_index}.mp4")
+    intermediate_files.append(flash_output)
+    await asyncio.to_thread(
+        add_intro_flash, current_input, text, flash_output, style or None, font_scale,
+        0.5, position, base_clip, speaker_windows, avatar_seed,
+    )
+    return flash_output
 
 
 # Gap between the bottom edge of the letterboxed video and the first caption
@@ -555,6 +561,9 @@ async def _compose_layers_impl(
 
         # Hook last: it's a static overlay that should appear on every
         # kept frame, regardless of how many silences Smart Cut removed.
+        # NOTE: Hook is rendered ONLY as the flash-intro card (see below,
+        # absolutely last) — there is no more on-video hook overlay burn.
+        # Logo is unaffected and still an ordinary on-video layer.
         hook_text = (hook_params or {}).get("text", "")
         if isinstance(hook_text, str):
             hook_text = hook_text.strip()
@@ -562,8 +571,8 @@ async def _compose_layers_impl(
         if hook_active and not hook_text:
             logger.warning(
                 "compose_layers: hook toggle ON but text is empty — "
-                "skipping hook layer. Ensure PublishModal / ResultCard "
-                "sends a non-empty hook_params.text.",
+                "skipping (flash intro reuses hook_params.text). Ensure "
+                "PublishModal / ResultCard sends a non-empty hook_params.text.",
             )
             hook_active = False
         logo_active = bool(active.get("logo"))
@@ -574,30 +583,9 @@ async def _compose_layers_impl(
             )
             logo_active = False
 
-        if hook_active and logo_active:
-            # Hook + Logo fusion: both are static overlays applied after Smart
-            # Cut, so they composite in ONE encode (hook below, logo topmost —
-            # the exact z-order of the sequential passes), one generation
-            # cheaper on a fully-toggled clip.
-            hp_clean = {**hook_params, "text": hook_text}
-            current_input = await _apply_hook(
-                current_input, job_dir, clip_index, hp_clean, intermediate_files,
-                logo_params=logo_params or {},
-                reframe_mode=(clip_info or {}).get("reframe_mode"),
-            )
-            layers_applied += ["hook", "logo"]
-            logger.info("compose_layers: ✓ hook+logo → %s", os.path.basename(current_input))
-        elif hook_active:
-            hp_clean = {**hook_params, "text": hook_text}
-            current_input = await _apply_hook(
-                current_input, job_dir, clip_index, hp_clean, intermediate_files,
-                reframe_mode=(clip_info or {}).get("reframe_mode"),
-            )
-            layers_applied.append("hook")
-            logger.info("compose_layers: ✓ hook → %s", os.path.basename(current_input))
-        elif logo_active:
+        if logo_active:
             # Logo absolutely last: a static brand mark that must sit on top of
-            # subtitles AND hook, on every kept frame.
+            # subtitles, on every kept frame.
             current_input = await _apply_logo(
                 current_input, job_dir, clip_index, logo_params, intermediate_files
             )
@@ -623,6 +611,20 @@ async def _compose_layers_impl(
             )
             layers_applied.append("banner")
             logger.info("compose_layers: ✓ banner → %s", os.path.basename(current_input))
+
+        # Hook, rendered as the flash-intro card — absolutely last of all
+        # (it's a prepend, not an overlay, so it must wrap the fully-finished
+        # clip: subs/logo/banner included, not get re-rendered by a later
+        # layer). No separate toggle: turning "Hook" on means the clip gets
+        # this card, full stop.
+        if hook_active:
+            current_input = await _apply_intro_flash(
+                current_input, base_clip, job_dir, clip_index,
+                {**hook_params, "text": hook_text}, intermediate_files,
+                metadata=metadata, clip_info=clip_info,
+            )
+            layers_applied.append("hook")
+            logger.info("compose_layers: ✓ hook (flash intro) → %s", os.path.basename(current_input))
 
         if os.path.abspath(current_input) != os.path.abspath(composed_path):
             shutil.copy2(current_input, composed_path)

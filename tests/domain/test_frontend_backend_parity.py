@@ -95,7 +95,7 @@ def test_hook_style_defaults_match_backend():
     """
     js = _parse_hook_style_default()
     required = {"bg_enabled", "bg_color", "bg_opacity", "text_color",
-                "outline_width", "outline_color", "font", "animate"}
+                "outline_width", "outline_color", "font"}
     assert required <= set(js), f"data.js HOOK_STYLE_DEFAULT missing keys: {required - set(js)}"
     for key, js_val in js.items():
         assert key in HOOK_STYLE_DEFAULTS, f"data.js declares unknown hook style key {key!r}"

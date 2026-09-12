@@ -77,6 +77,15 @@ get a still camera, not micro-tracking.
    that time window — no new heavy model, reuses an existing pipeline output.
    A full TalkNet-style model is a large dependency and probably overkill.
    Sources: LoCoNet (arXiv 2301.08237); TalkNet; robust-ASD (arXiv 2403.19002).
+   **Update 2026-09-12:** implemented the cheap-win half of this — transcript
+   word timings (not diarization identity) now *gate* MAR: `SpeakerTracker`
+   ignores mouth motion entirely outside `reframe_ops.clip_relative_speech_spans`
+   (ships as `process_video_to_vertical(..., speech_spans=)`), so a laughing/
+   chewing/silent face can't steal the active-speaker lock during a pause.
+   Full per-speaker diarization *bias* (picking WHICH face based on WHICH
+   diarized identity is talking, not just whether anyone is) is still open —
+   see `docs/clipsai-analysis.md` for why that's a bigger, deliberately
+   deferred change (a second, conflicting segmentation basis).
 
 ### Cosmetic
 6. **Blurred-background padding instead of black bars.** AutoFlip fills

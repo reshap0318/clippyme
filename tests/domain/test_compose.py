@@ -1,11 +1,15 @@
 """Tests for clippyme.domain.compose — layer composition + cleanup.
 
 The individual layer helpers (_apply_subtitles / _apply_smartcut /
-_apply_hook) shell out to ffmpeg / auto-editor / Pillow, so they are
+_apply_intro_flash) shell out to ffmpeg / auto-editor / Pillow, so they are
 monkeypatched here. What we actually verify is compose_layers' own logic:
-layer ORDER (subtitles → smartcut → hook), the empty-hook skip, the
-no-active-toggles short-circuit, and intermediate-file cleanup on both the
-success and failure paths.
+layer ORDER (subtitles → smartcut → ... → banner → hook/flash last of all),
+the empty-hook skip, the no-active-toggles short-circuit, and
+intermediate-file cleanup on both the success and failure paths.
+
+Hook is no longer an on-video overlay — turning the "hook" toggle on renders
+the flash-intro card (a prepend, not an overlay) via _apply_intro_flash,
+always as the LAST pass so it wraps everything else (subs/logo/banner).
 
 Async functions are driven with asyncio.run() so the suite needs no
 pytest-asyncio plugin (matching the existing tests/pipeline style).
@@ -50,17 +54,18 @@ def _install_recording_stubs(monkeypatch, order):
         intermediate_files.append(out)
         return out
 
-    async def fake_hook(current_input, job_dir, clip_index, hook_params,
-                        intermediate_files, logo_params=None, reframe_mode=None):
+    async def fake_flash(current_input, base_clip, job_dir, clip_index,
+                        hook_params, intermediate_files,
+                        metadata=None, clip_info=None):
         order.append("hook")
-        out = os.path.join(job_dir, f"composed_hook_{clip_index}.mp4")
+        out = os.path.join(job_dir, f"composed_flash_{clip_index}.mp4")
         _touch(out)
         intermediate_files.append(out)
         return out
 
     monkeypatch.setattr(compose, "_apply_subtitles", fake_subtitles)
     monkeypatch.setattr(compose, "_apply_smartcut", fake_smartcut)
-    monkeypatch.setattr(compose, "_apply_hook", fake_hook)
+    monkeypatch.setattr(compose, "_apply_intro_flash", fake_flash)
 
 
 def _run_compose(tmp_path, toggles, *, hook_text="Watch this", base_name="clip_0.mp4"):
@@ -82,7 +87,7 @@ def _run_compose(tmp_path, toggles, *, hook_text="Watch this", base_name="clip_0
 # --- _SIZE_MAP -------------------------------------------------------------
 
 def test_size_map_values():
-    assert _SIZE_MAP == {"S": 0.8, "M": 1.0, "L": 1.3}
+    assert _SIZE_MAP == {"S": 1.6, "M": 2.0, "L": 2.6}
 
 
 # --- no active toggles -----------------------------------------------------
@@ -216,7 +221,10 @@ def _run_compose_banner(tmp_path, *, toggles, banner_params, reframe_mode=None):
     )
 
 
-def test_banner_runs_last_after_hook(tmp_path, monkeypatch):
+def test_hook_flash_runs_last_after_banner(tmp_path, monkeypatch):
+    # Hook/flash is a prepend, not an overlay — it must wrap the FULLY
+    # composed clip (banner included), so it runs after banner now, not
+    # right after smartcut like the old on-video overlay did.
     order = []
     _install_recording_stubs(monkeypatch, order)
     _install_banner_stub(monkeypatch, order)
@@ -226,7 +234,7 @@ def test_banner_runs_last_after_hook(tmp_path, monkeypatch):
         banner_params={"enabled": True, "platform": "kick", "handle": "grenbaud"},
     )
     steps = [o for o in order if isinstance(o, str)]
-    assert steps == ["hook", "banner"]  # banner is topmost, after hook
+    assert steps == ["banner", "hook"]
     assert result == "composed_clip_0.mp4"
 
 

@@ -97,23 +97,36 @@ def test_overlong_word_is_wrapped_to_target_width(monkeypatch, tmp_path):
     assert height > 40
 
 
-def test_concurrent_hook_renders_use_distinct_temp_files(monkeypatch, tmp_path):
+def test_concurrent_flash_renders_use_distinct_temp_files(monkeypatch, tmp_path):
+    from PIL import Image
+
     video = tmp_path / "clip_1.mp4"
     video.write_bytes(b"video")
-    seen = []
 
-    monkeypatch.setattr(hooks.subprocess, "check_output", lambda *a, **k: b"1080x1920")
+    # Bypass the multi-frame scan (real ffmpeg/cv2, not available on host) and
+    # hand back a fresh, valid background frame (no detected faces) each call
+    # — add_intro_flash's own cleanup removes it after use, so a shared path
+    # reused across both calls would 404 on the second one.
+    def fake_pick(source_path, w, h):
+        p = tmp_path / f"bg_{len(seen)}.png"
+        Image.new("RGB", (108, 192), (10, 10, 10)).save(p)
+        return str(p), []
+
+    monkeypatch.setattr(hooks, "_pick_best_flash_frame", fake_pick)
+    monkeypatch.setattr(hooks.subprocess, "check_output", lambda *a, **k: b"108x192x30/1")
+    monkeypatch.setattr(hooks.subprocess, "run", lambda *a, **k: None)
+
+    seen = []
 
     def fake_create(text, target_width, output_image_path, **kwargs):
         seen.append(output_image_path)
-        assert os.path.exists(output_image_path)
-        return output_image_path, 100, 50
+        Image.new("RGBA", (10, 10), (255, 255, 255, 255)).save(output_image_path)
+        return output_image_path, 10, 10
 
     monkeypatch.setattr(hooks, "create_hook_image", fake_create)
-    monkeypatch.setattr(hooks.subprocess, "run", lambda *a, **k: None)
 
-    assert hooks.add_hook_to_video(str(video), "one", str(tmp_path / "out1.mp4")) is True
-    assert hooks.add_hook_to_video(str(video), "two", str(tmp_path / "out2.mp4")) is True
+    assert hooks.add_intro_flash(str(video), "one", str(tmp_path / "out1.mp4")) is True
+    assert hooks.add_intro_flash(str(video), "two", str(tmp_path / "out2.mp4")) is True
     assert len(seen) == 2
     assert seen[0] != seen[1]
     assert all(not os.path.exists(path) for path in seen)

@@ -92,7 +92,6 @@ export const HOOK_STYLE_DEFAULT = {
   outline_width: 4,
   outline_color: '#000000',
   font: 'Anton-Regular',
-  animate: false,
 };
 // Outline thickness presets → px stroke width.
 export const HOOK_OUTLINE = [['0', 'None'], ['4', 'Thin'], ['8', 'Thick']];

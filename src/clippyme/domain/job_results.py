@@ -8,7 +8,7 @@ import os
 import re
 
 from clippyme.domain.clip_resolve import clip_filename_for
-from clippyme.pipeline.reframe_ops import normalize_letterbox_zoom
+from clippyme.pipeline.reframe_ops import normalize_letterbox_fill, normalize_letterbox_zoom
 from clippyme.domain.runtime_state import runtime_result_fields
 
 logger = logging.getLogger("clippyme")
@@ -47,6 +47,7 @@ def build_main_cmd(
     instructions: str | None = None,
     reframe_mode: str | None = None,
     letterbox_zoom: float | None = None,
+    letterbox_fill: str | None = None,
     start_offset: float | None = None,
     cookies_path: str | None = None,
     language: str | None = None,
@@ -55,6 +56,8 @@ def build_main_cmd(
     aspect: str | None = None,
     model: str | None = None,
     monitor: bool = False,
+    target_clips: int | None = None,
+    recipe: dict | None = None,
 ) -> list[str]:
     """Build argv for the checkpointed backend pipeline.
 
@@ -68,6 +71,10 @@ def build_main_cmd(
         zoom_norm = normalize_letterbox_zoom(letterbox_zoom)
     except (TypeError, ValueError):
         raise ValueError(f"invalid letterbox_zoom: {letterbox_zoom!r}")
+    try:
+        fill_norm = normalize_letterbox_fill(letterbox_fill)
+    except (TypeError, ValueError):
+        raise ValueError(f"invalid letterbox_fill: {letterbox_fill!r}")
     # Seconds to drop off the head of the source (a VOD's prelive waiting
     # screen). Bounded by the monitor's own prelive cap.
     try:
@@ -78,6 +85,10 @@ def build_main_cmd(
         model = model.strip()
         if model and not GEMINI_MODEL_RE.match(model):
             raise ValueError(f"invalid model: {model!r}")
+    if target_clips is not None and not (1 <= target_clips <= 50):
+        raise ValueError(f"invalid target_clips: {target_clips!r}")
+    if recipe is not None and not isinstance(recipe, dict):
+        raise ValueError(f"invalid recipe: {recipe!r}")
     if aspect is not None and aspect not in ("9:16", "1:1", "16:9"):
         raise ValueError(f"invalid aspect: {aspect!r}")
     if instructions is not None and len(instructions) > MAX_INSTRUCTIONS_LEN:
@@ -107,6 +118,8 @@ def build_main_cmd(
     # Only meaningful for the letterbox render; 0 (the default) = whole frame.
     if zoom_norm:
         cmd.extend(["--letterbox-zoom", f"{zoom_norm:.2f}"])
+    if fill_norm != "black":
+        cmd.extend(["--letterbox-fill", fill_norm])
     if offset_norm:
         cmd.extend(["--start-offset", f"{offset_norm:.0f}"])
     if aspect and aspect != "9:16":
@@ -121,6 +134,13 @@ def build_main_cmd(
         cmd.extend(["--model", model.strip()])
     if monitor:
         cmd.append("--monitor")
+    if target_clips:
+        cmd.extend(["--target-clips", str(target_clips)])
+    if recipe:
+        # Single argv token (subprocess is invoked as a list, never through a
+        # shell) — no quoting/escaping needed regardless of what the JSON
+        # contains.
+        cmd.extend(["--recipe", json.dumps(recipe)])
     return cmd
 
 

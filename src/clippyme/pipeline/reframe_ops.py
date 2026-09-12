@@ -8,6 +8,7 @@ Provides:
 - OneEuroFilter               — adaptive jitter-vs-lag camera smoothing
 - drift_to_center             — graceful lost-subject recovery
 - salient_crop_center         — content-aware crop window for faceless scenes
+- salient_centroid_2d         — energy-weighted 2-D point, e.g. lost-subject recovery target
 - weighted_interest_center    — weighted-object centroid for faceless B-roll
 - savgol_1d                    — Savitzky-Golay smoothing for a future two-stage
                                  global-trajectory pass
@@ -174,6 +175,21 @@ def normalize_letterbox_zoom(value) -> float:
     return min(max(z, LETTERBOX_ZOOM_MIN), LETTERBOX_ZOOM_MAX)
 
 
+def normalize_letterbox_fill(value) -> str:
+    """Coerce a user-supplied letterbox fill choice to 'black' or 'blur'.
+
+    None/'' → 'black' (unchanged default behaviour for old jobs/clients that
+    don't send this field). Raises ``ValueError`` on anything else, same
+    contract as ``normalize_letterbox_zoom``.
+    """
+    if value is None or value == "":
+        return "black"
+    v = str(value).strip().lower()
+    if v not in ("black", "blur"):
+        raise ValueError(f"invalid letterbox_fill: {value!r}")
+    return v
+
+
 def letterbox_plan(src_w: int, src_h: int, out_w: int, out_h: int,
                    zoom: float = 0.0):
     """Geometry for a reframe-OFF frame: the whole source inside black bars.
@@ -250,6 +266,26 @@ def salient_crop_center(column_energy, crop_w: float, frame_w: float,
         elif center < prev_x - max_step:
             center = prev_x - max_step
     return center
+
+
+def salient_centroid_2d(energy) -> tuple[float, float]:
+    """Energy-weighted centroid of a 2-D saliency/gradient map, in pixel coords.
+
+    ``energy`` is a non-negative 2-D array (e.g. Sobel gradient magnitude —
+    same signal ``salient_crop_center``/``_salient_general_crop`` already use,
+    just not collapsed to columns). Falls back to the array's geometric
+    center when the energy is all-zero/degenerate, so a blank or corrupt
+    frame never raises or returns a nonsensical point.
+    """
+    arr = np.asarray(energy, dtype=float)
+    h, w = arr.shape
+    total = arr.sum()
+    if not np.isfinite(total) or total <= 0:
+        return w / 2.0, h / 2.0
+    ys, xs = np.mgrid[0:h, 0:w]
+    cx = float((arr * xs).sum() / total)
+    cy = float((arr * ys).sum() / total)
+    return cx, cy
 
 
 def weighted_interest_center(boxes):
@@ -681,3 +717,42 @@ def build_smoothed_trajectory(targets, scene_ids, window: int, polyorder: int,
             out[i + k] = (float(xs[k]), float(ys[k]), float(zs[k]))
         i = j
     return out
+
+
+# --- audio-gated active-speaker selection -----------------------------------
+# Mouth-motion (MAR variance) alone can't tell speech apart from laughing,
+# chewing, or yawning — it only measures that the mouth is moving. These two
+# functions turn the clip's own transcript words into a cheap "is anyone
+# actually talking right now" signal so SpeakerTracker can ignore mouth motion
+# during non-speech and stop mis-switching to whoever's face is moving for a
+# reason other than talking.
+
+def clip_relative_speech_spans(
+    words: list[dict], clip_start: float, clip_end: float, merge_gap: float = 0.3,
+) -> list[tuple[float, float]]:
+    """Transcript words -> merged (start, end) speech spans, clip-relative.
+
+    ``words`` are absolute-video-time dicts with 'start'/'end' (e.g. from
+    ``cut_ops.flatten_words``). Adjacent words separated by a gap smaller than
+    ``merge_gap`` seconds are merged into one span so ordinary micro-pauses
+    between words don't register as silence.
+    """
+    spans: list[tuple[float, float]] = []
+    for w in words:
+        s, e = w.get("start"), w.get("end")
+        if s is None or e is None or e <= clip_start or s >= clip_end:
+            continue
+        s = max(float(s), clip_start) - clip_start
+        e = min(float(e), clip_end) - clip_start
+        if e <= s:
+            continue
+        if spans and s - spans[-1][1] <= merge_gap:
+            spans[-1] = (spans[-1][0], max(spans[-1][1], e))
+        else:
+            spans.append((s, e))
+    return spans
+
+
+def is_speech_at(t: float, spans: list[tuple[float, float]], pad: float = 0.25) -> bool:
+    """True if timestamp ``t`` (clip-relative seconds) falls within ``pad`` of any span."""
+    return any(s - pad <= t <= e + pad for s, e in spans)

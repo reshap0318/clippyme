@@ -16,7 +16,7 @@ from clippyme.domain.clip_locks import clip_lock
 from clippyme.domain.clip_resolve import clip_filename_for
 from clippyme.domain.errors import ClippyMeError, NotFoundError
 from clippyme.domain.job_artifacts import load_job_metadata, save_job_metadata
-from clippyme.pipeline.reframe_ops import normalize_letterbox_zoom
+from clippyme.pipeline.reframe_ops import normalize_letterbox_fill, normalize_letterbox_zoom
 from clippyme.storage.config_store import load_persistent_config
 
 logger = logging.getLogger(__name__)
@@ -24,12 +24,14 @@ logger = logging.getLogger(__name__)
 
 async def run_reframe(*, job_id: str, clip_index: int, mode: str,
                       output_root: str, jobs: dict,
-                      letterbox_zoom: float | None = None) -> dict:
+                      letterbox_zoom: float | None = None,
+                      letterbox_fill: str | None = None) -> dict:
     """Re-render one clip with a different reframe mode via ``main.py
     --reframe-only`` and update metadata + in-memory job state.
 
     ``mode`` must already be canonical ('auto' / 'subject' / 'disabled').
-    ``letterbox_zoom`` only applies to 'disabled' (0 = whole frame).
+    ``letterbox_zoom``/``letterbox_fill`` only apply to 'disabled' (0/'black'
+    = whole frame between empty bars).
     Returns the endpoint response payload (cache-busted ``new_video_url``).
     """
     output_dir = os.path.join(output_root, job_id)
@@ -74,8 +76,12 @@ async def run_reframe(*, job_id: str, clip_index: int, mode: str,
     ]
 
     zoom = normalize_letterbox_zoom(letterbox_zoom)
-    if zoom and mode == "disabled":
-        cmd += ["--letterbox-zoom", f"{zoom:.2f}"]
+    fill = normalize_letterbox_fill(letterbox_fill)
+    if mode == "disabled":
+        if zoom:
+            cmd += ["--letterbox-zoom", f"{zoom:.2f}"]
+        if fill != "black":
+            cmd += ["--letterbox-fill", fill]
 
     # Re-render at the job's ORIGINAL aspect (persisted in metadata at process
     # time). Omitting this defaults main.py to 9:16 and squashes a 1:1/16:9 clip
@@ -141,6 +147,16 @@ async def run_reframe(*, job_id: str, clip_index: int, mode: str,
         # Update in-memory metadata structures with the CLEAN url, then persist.
         clips[clip_index]["video_url"] = clean_video_url
         clips[clip_index]["reframe_mode"] = mode
+        # Mirror zoom/fill into the same last_edit blob compose writes to
+        # (clip_resolve.persist_clip_recipe) — reframe_mode itself stays at
+        # the top level too for back-compat with every existing reader.
+        last_edit = clip_data.get("last_edit")
+        if not isinstance(last_edit, dict):
+            last_edit = {}
+        last_edit.update({
+            "reframe_mode": mode, "letterbox_zoom": zoom, "letterbox_fill": fill,
+        })
+        clips[clip_index]["last_edit"] = last_edit
         data["shorts"] = clips
 
         # A persistence failure must NOT silently succeed: the clip on disk has

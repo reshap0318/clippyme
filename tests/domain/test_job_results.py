@@ -69,6 +69,19 @@ def test_letterbox_zoom_rejects_garbage():
         build_main_cmd(url="https://x.com/v", output_dir="o", letterbox_zoom="abc")
 
 
+def test_letterbox_fill_omitted_when_black_and_passed_when_blur():
+    cmd = build_main_cmd(url="https://x.com/v", output_dir="o", reframe_mode="disabled")
+    assert "--letterbox-fill" not in cmd
+    cmd = build_main_cmd(url="https://x.com/v", output_dir="o",
+                         reframe_mode="disabled", letterbox_fill="blur")
+    assert cmd[cmd.index("--letterbox-fill") + 1] == "blur"
+
+
+def test_letterbox_fill_rejects_garbage():
+    with pytest.raises(ValueError, match="letterbox_fill"):
+        build_main_cmd(url="https://x.com/v", output_dir="o", letterbox_fill="rainbow")
+
+
 def test_start_offset_omitted_when_zero_and_clamped_when_set():
     cmd = build_main_cmd(url="https://x.com/v", output_dir="o")
     assert "--start-offset" not in cmd
@@ -125,6 +138,38 @@ def test_model_omitted_when_none_or_blank():
 def test_model_future_gemini_family_accepted():
     cmd = build_main_cmd(url="https://x.com/v", output_dir="o", model="gemini-3-pro")
     assert cmd[cmd.index("--model") + 1] == "gemini-3-pro"
+
+
+def test_target_clips_forwarded_when_set():
+    cmd = build_main_cmd(url="https://x.com/v", output_dir="o", target_clips=5)
+    assert cmd[cmd.index("--target-clips") + 1] == "5"
+
+
+def test_target_clips_omitted_when_none():
+    assert "--target-clips" not in build_main_cmd(url="https://x.com/v", output_dir="o")
+
+
+@pytest.mark.parametrize("bad", [0, -1, 51])
+def test_target_clips_rejects_out_of_bounds(bad):
+    with pytest.raises(ValueError, match="target_clips"):
+        build_main_cmd(url="https://x.com/v", output_dir="o", target_clips=bad)
+
+
+def test_recipe_forwarded_as_json_when_set():
+    import json
+    recipe = {"toggles": {"hook": True}, "hook_params": {"position": "top"}}
+    cmd = build_main_cmd(url="https://x.com/v", output_dir="o", recipe=recipe)
+    assert json.loads(cmd[cmd.index("--recipe") + 1]) == recipe
+
+
+def test_recipe_omitted_when_none_or_empty():
+    assert "--recipe" not in build_main_cmd(url="https://x.com/v", output_dir="o")
+    assert "--recipe" not in build_main_cmd(url="https://x.com/v", output_dir="o", recipe={})
+
+
+def test_recipe_rejects_non_dict():
+    with pytest.raises(ValueError, match="recipe"):
+        build_main_cmd(url="https://x.com/v", output_dir="o", recipe="not-a-dict")
 
 
 @pytest.mark.parametrize("bad", [

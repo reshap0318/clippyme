@@ -32,6 +32,53 @@ def test_batch_language_is_rejected_at_api_boundary():
         BatchRequest(urls=["https://example.com/video"], language="not-a-language")
 
 
+def test_process_target_clips_bounds():
+    assert ProcessRequest(url="https://upload.invalid/local", target_clips=5).target_clips == 5
+    assert ProcessRequest(url="https://upload.invalid/local").target_clips is None
+    with pytest.raises(ValidationError):
+        ProcessRequest(url="https://upload.invalid/local", target_clips=0)
+    with pytest.raises(ValidationError):
+        ProcessRequest(url="https://upload.invalid/local", target_clips=51)
+
+
+def test_batch_target_clips_bounds():
+    assert BatchRequest(
+        urls=["https://example.com/video"], target_clips=10,
+    ).target_clips == 10
+    with pytest.raises(ValidationError):
+        BatchRequest(urls=["https://example.com/video"], target_clips=0)
+
+
+def test_process_recipe_accepts_valid_shape():
+    recipe = {
+        "toggles": {"hook": True, "subtitles": False},
+        "hook_params": {"position": "top", "size": "M"},
+    }
+    request = ProcessRequest(url="https://upload.invalid/local", recipe=recipe)
+    assert request.recipe == recipe
+
+
+def test_process_recipe_rejects_unknown_keys():
+    with pytest.raises(ValidationError):
+        ProcessRequest(
+            url="https://upload.invalid/local",
+            recipe={"drop_ranges": [[0, 1]]},  # not part of a Create-time recipe
+        )
+
+
+def test_process_recipe_rejects_unknown_toggle():
+    with pytest.raises(ValidationError):
+        ProcessRequest(
+            url="https://upload.invalid/local",
+            recipe={"toggles": {"not_a_real_toggle": True}},
+        )
+
+
+def test_process_recipe_rejects_non_object():
+    with pytest.raises(ValidationError):
+        ProcessRequest(url="https://upload.invalid/local", recipe="not-a-dict")
+
+
 def test_live_monitor_start_preserves_runtime_domain_fields():
     request = LiveMonitorStartRequest(
         **_MONITOR_BASE,

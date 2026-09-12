@@ -28,6 +28,7 @@ export function clipStateToParams(state, preselections, clip) {
   return {
     reframeMode: state?.reframeMode || clip?.reframe_mode || 'auto',
     letterboxZoom: Number(state?.letterboxZoom) || 0,
+    letterboxFill: state?.letterboxFill || 'black',
     toggles: state?.toggles || seedToggles(preselections),
     subtitleParams: state?.subtitleParams || seedSubtitleParams(preselections),
     hookParams: state?.hookParams || seedHookParams(clip, preselections),
@@ -66,6 +67,7 @@ export function buildClipParams(srcParams, targetClip, targetState) {
     reframeMode: srcParams.reframeMode,
     baseMode,
     letterboxZoom: Number(srcParams.letterboxZoom) || 0,
+    letterboxFill: srcParams.letterboxFill || 'black',
     toggles: { ...srcParams.toggles },
     subtitleParams: { ...srcParams.subtitleParams },
     // Copy the hook STYLE but keep this clip's own text.

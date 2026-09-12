@@ -37,7 +37,9 @@ from clippyme.pipeline.reframe_ops import (
     build_smoothed_trajectory,
     centroid_span,
     collapse_scene_targets,
+    is_speech_at,
     letterbox_plan,
+    salient_centroid_2d,
     salient_crop_center,
     weighted_interest_center,
 )
@@ -199,6 +201,46 @@ def _salient_general_crop(frame, output_width, output_height):
         return None
 
 
+def _blurred_fill_canvas(frame, output_width, output_height):
+    """Cover-fit + blur the whole frame to output size — a background that
+    fills every pixel instead of empty black, used behind a letterboxed
+    foreground (GENERAL scenes and the 'disabled'-mode blur fill).
+    """
+    orig_h, orig_w = frame.shape[:2]
+    bg_scale = output_height / orig_h
+    bg_w = int(orig_w * bg_scale)
+    bg_resized = cv2.resize(frame, (bg_w, output_height))
+
+    start_x = max(0, (bg_w - output_width) // 2)
+    background = bg_resized[:, start_x:start_x + output_width]
+    if background.shape[1] != output_width:
+        background = cv2.resize(background, (output_width, output_height))
+
+    return cv2.GaussianBlur(background, (51, 51), 0)
+
+
+def _salient_recovery_center(frame):
+    """Content-aware lost-subject recovery target: the gradient-energy-weighted
+    centroid of the whole frame (same Sobel signal as ``_salient_general_crop``,
+    just centroided in 2-D instead of collapsed to columns).
+
+    Used to replace the fixed frame-center drift target when a tracked face is
+    lost for longer than ``REFRAME_LOST_HOLD`` — a B-roll cutaway usually has
+    ONE visually busy region, and drifting toward it reads less "the camera
+    gave up" than drifting to a geometric center that may be empty background.
+    Returns ``None`` on any failure so the caller keeps the proven fixed-center
+    fallback.
+    """
+    try:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+        energy = np.abs(gx) + np.abs(gy)
+        return salient_centroid_2d(energy)
+    except Exception:
+        return None
+
+
 def create_general_frame(frame, output_width, output_height, force_object_weights=False):
     """
     Creates a 'General Shot' frame:
@@ -231,27 +273,12 @@ def create_general_frame(frame, output_width, output_height, force_object_weight
             return salient
 
     orig_h, orig_w = frame.shape[:2]
+    background = _blurred_fill_canvas(frame, output_width, output_height)
 
-    # 1. Background (Fill Height)
-    # Crop center to aspect ratio
-    bg_scale = output_height / orig_h
-    bg_w = int(orig_w * bg_scale)
-    bg_resized = cv2.resize(frame, (bg_w, output_height))
-    
-    # Crop center of background
-    start_x = (bg_w - output_width) // 2
-    if start_x < 0: start_x = 0
-    background = bg_resized[:, start_x:start_x+output_width]
-    if background.shape[1] != output_width:
-        background = cv2.resize(background, (output_width, output_height))
-        
-    # Blur background
-    background = cv2.GaussianBlur(background, (51, 51), 0)
-    
     # 2. Foreground (Fit Width)
     scale = output_width / orig_w
     fg_h = int(orig_h * scale)
-    foreground = cv2.resize(frame, (output_width, fg_h))
+    foreground = _resize_to_output(frame, output_width, fg_h)
     
     # 3. Overlay
     y_offset = (output_height - fg_h) // 2
@@ -321,7 +348,7 @@ def _black_pad_to_output(frame, output_width, output_height):
     fg_h = int(round(orig_h * scale))
     if fg_h % 2 != 0:
         fg_h += 1
-    foreground = cv2.resize(frame, (output_width, fg_h))
+    foreground = _resize_to_output(frame, output_width, fg_h)
     canvas = np.zeros((output_height, output_width, 3), dtype=np.uint8)
     if fg_h >= output_height:
         crop_y = (fg_h - output_height) // 2
@@ -566,22 +593,30 @@ def select_cover_frame(video_path):
 
     return None
 
-def create_disabled_reframe(frame, output_width, output_height, zoom: float = 0.0):
-    """Reframe OFF: the whole frame inside black bars (top & bottom).
+def create_disabled_reframe(frame, output_width, output_height, zoom: float = 0.0,
+                            fill: str = 'black'):
+    """Reframe OFF: the whole frame inside bars (top & bottom).
 
     Nothing is cropped away by default — that is what "reframe disabled" means.
     ``zoom`` (0 = off, else 0.05–0.15) trims that fraction off the width so the
     picture is magnified by 1/(1-zoom) and the bars shrink. Geometry lives in
     the pure ``reframe_ops.letterbox_plan``.
+
+    ``fill`` picks what goes in the bars: 'black' (default) — solid bars.
+    'blur' — a cover-fit blurred copy of the same frame instead of empty
+    black, same look as the GENERAL-scene fallback (``_blurred_fill_canvas``).
     """
     h, w = frame.shape[:2]
     (cx, cy, cw, ch), (sw, sh), (ox, oy) = letterbox_plan(
         w, h, output_width, output_height, zoom)
 
     cropped = frame[cy:cy + ch, cx:cx + cw]
-    scaled = cv2.resize(cropped, (sw, sh))
+    scaled = _resize_to_output(cropped, sw, sh)
 
-    canvas = np.zeros((output_height, output_width, 3), dtype=np.uint8)
+    if fill == 'blur':
+        canvas = _blurred_fill_canvas(frame, output_width, output_height)
+    else:
+        canvas = np.zeros((output_height, output_width, 3), dtype=np.uint8)
     canvas[oy:oy + sh, ox:ox + sw] = scaled
     return canvas
 
@@ -618,7 +653,7 @@ def _reframe_comfort_enabled() -> bool:
 def _render_global_smooth(input_video, ffmpeg_process, cameraman, speaker_tracker,
                           detection_smoother, scene_boundaries, scene_strategies,
                           output_width, output_height, original_width, original_height,
-                          total_frames, fps):
+                          total_frames, fps, speech_spans=None):
     """Two-stage track-then-render reframe (opt-in via REFRAME_GLOBAL_SMOOTH).
 
     Pass 1 decodes the clip and records the raw per-frame camera target
@@ -681,7 +716,9 @@ def _render_global_smooth(input_video, ffmpeg_process, cameraman, speaker_tracke
                         candidates = detection_smoother.smooth(candidates, frame_number)
                         for cand in candidates:
                             cand['mar'] = compute_mouth_aspect_ratio(frame, cand['box'])
-                        target_box = speaker_tracker.get_target(candidates, frame_number, original_width)
+                        is_speech = speech_spans is None or is_speech_at(frame_number / fps, speech_spans)
+                        target_box = speaker_tracker.get_target(
+                            candidates, frame_number, original_width, is_speech=is_speech)
                         if target_box:
                             cameraman.update_target(target_box)
                         elif strat == 'TRACK':
@@ -804,9 +841,21 @@ def _render_global_smooth(input_video, ffmpeg_process, cameraman, speaker_tracke
 
 def process_video_to_vertical(input_video, final_output_video, reframe_mode='auto',
                               zoom_end=None, aspect_ratio: float = 9 / 16,
-                              letterbox_zoom: float = 0.0):
+                              letterbox_zoom: float = 0.0, speech_spans=None,
+                              letterbox_fill: str = 'black'):
     """
     Core logic to convert horizontal video to vertical using scene detection and Active Speaker Tracking (MediaPipe).
+
+    letterbox_fill: only meaningful for reframe_mode='disabled' — 'black'
+    (default) leaves the bars empty, 'blur' fills them with a cover-fit
+    blurred copy of the frame instead (see create_disabled_reframe).
+
+    speech_spans: optional list of (start, end) clip-relative seconds where the
+    transcript has actual speech (see reframe_ops.clip_relative_speech_spans).
+    When given, active-speaker MAR-based switching is suppressed outside these
+    spans — mouth motion alone can't tell talking apart from laughing/chewing/
+    yawning. None (default) disables gating and keeps prior behaviour, since
+    not every caller (e.g. the --reframe-only post-hoc path) has a transcript.
 
     zoom_end: when set (e.g. 1.05), the Ken Burns 1.0→zoom_end zoompan is
     folded INTO the master encode instead of running as a separate
@@ -1021,6 +1070,7 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
                 scene_boundaries, scene_strategies,
                 OUTPUT_WIDTH, OUTPUT_HEIGHT,
                 original_width, original_height, total_frames, fps,
+                speech_spans=speech_spans,
             )
 
         with tqdm(total=total_frames, desc="   Processing", file=sys.stdout) as pbar:
@@ -1055,7 +1105,8 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
                 try:
                     if current_strategy == 'DISABLED':
                         output_frame = create_disabled_reframe(
-                            frame, OUTPUT_WIDTH, OUTPUT_HEIGHT, zoom=letterbox_zoom)
+                            frame, OUTPUT_WIDTH, OUTPUT_HEIGHT, zoom=letterbox_zoom,
+                            fill=letterbox_fill)
 
                     elif current_strategy == 'OBJECT':
                         # FrameShift face-first crop: weighted-interest centroid
@@ -1086,7 +1137,10 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
                             candidates = detection_smoother.smooth(candidates, frame_number)
                             for cand in candidates:
                                 cand['mar'] = compute_mouth_aspect_ratio(frame, cand['box'])
-                            target_box = speaker_tracker.get_target(candidates, frame_number, original_width)
+                            is_speech = speech_spans is None or is_speech_at(frame_number / fps, speech_spans)
+                            target_box = speaker_tracker.get_target(
+                                candidates, frame_number, original_width, is_speech=is_speech)
+                            found = bool(target_box)
                             if target_box:
                                 cameraman.update_target(target_box)
                             elif current_strategy == 'TRACK':
@@ -1094,9 +1148,18 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
                                 person_box = detect_person_yolo(frame)
                                 if person_box:
                                     cameraman.update_target(person_box, is_person_box=True)
+                                    found = True
                             # WIDE: if no face detected this frame, just keep the
                             # cameraman's current target (don't fall back to body
                             # tracking which would jump to a random person).
+                            if not found and cameraman.frames_since_target >= cameraman.lost_hold_frames:
+                                # Subject has been missing past the hold window and
+                                # drift is about to kick in (see get_crop_box) — steer
+                                # it toward the frame's actual salient content instead
+                                # of a fixed geometric center.
+                                recovery = _salient_recovery_center(frame)
+                                if recovery:
+                                    cameraman.set_recovery_center(*recovery)
 
                         # Snap camera on scene change to avoid panning from previous scene position
                         is_scene_start = (frame_number == scene_boundaries[current_scene_index][0])

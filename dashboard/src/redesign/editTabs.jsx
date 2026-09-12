@@ -21,9 +21,18 @@ export const LETTERBOX_ZOOM_OPTS = [
   { id: '0', label: 'Off' }, { id: '5', label: '5%' }, { id: '10', label: '10%' }, { id: '15', label: '15%' },
 ];
 
-// `onRetry` is only passed for a single-clip edit (bulk targets multiple
-// clips whose current renders differ, so "retry" isn't a coherent action).
-export function ReframeTab({ mode, onChange, zoom = 0, onZoomChange, onRetry }) {
+// Bars behind the letterboxed video: solid black, or a blurred cover-fit copy
+// of the same frame (no crop, just fills the dead space instead of leaving it
+// empty). Only meaningful in 'disabled' mode, same as the zoom control above.
+export const LETTERBOX_FILL_OPTS = [
+  { id: 'black', label: 'Black' }, { id: 'blur', label: 'Blur' },
+];
+
+// `forceReframe`/`onForceReframeChange` are only passed for a single-clip
+// edit (bulk targets multiple clips whose current renders differ, so
+// "retry" isn't a coherent shared action).
+export function ReframeTab({ mode, onChange, zoom = 0, onZoomChange, fill = 'black', onFillChange,
+                            forceReframe, onForceReframeChange }) {
   return (
     <div className="field" style={{ marginTop: 4 }}>
       <span className="field-label">Reframe</span>
@@ -36,13 +45,23 @@ export function ReframeTab({ mode, onChange, zoom = 0, onZoomChange, onRetry }) 
           <div className="eo-d" style={{ marginTop: 6 }}>Crop the sides for a bigger picture and smaller black bars</div>
         </div>
       )}
-      {onRetry && (
+      {mode === 'disabled' && onFillChange && (
         <div style={{ marginTop: 14 }}>
-          <Btn variant="ghost" size="sm" icon="refresh-cw" onClick={onRetry}>Retry this render</Btn>
-          <div className="eo-d" style={{ marginTop: 6 }}>
-            Re-renders the current mode from scratch, no other changes needed —
-            useful if the last render glitched (frozen tail, off-center crop).
+          <span className="field-label">Background</span>
+          <Segmented full value={fill || 'black'} onChange={onFillChange} options={LETTERBOX_FILL_OPTS} />
+          <div className="eo-d" style={{ marginTop: 6 }}>Solid black bars, or a blurred copy of the video filling the space</div>
+        </div>
+      )}
+      {onForceReframeChange && (
+        <div className="edit-opt" style={{ marginTop: 14 }}>
+          <div className="eo-txt">
+            <div className="eo-t">Force re-render</div>
+            <div className="eo-d">
+              Re-renders the current mode from scratch on the next Apply — useful
+              if the last render glitched (frozen tail, off-center crop).
+            </div>
           </div>
+          <Switch on={!!forceReframe} onChange={onForceReframeChange} />
         </div>
       )}
     </div>
@@ -129,12 +148,12 @@ export function CaptionsTab({ on, onToggle, subs, onSubsChange }) {
   );
 }
 
-export function HookTab({ on, onToggle, bulk, text, onText, style, onStyle, position, onPositionChange, size, onSizeChange }) {
+export function HookTab({ on, onToggle, bulk, text, onText, style, onStyle, position, onPositionChange, size, onSizeChange, regenerateAvatars, onRegenerateAvatarsChange }) {
   return (
     <>
       <div className="edit-opt">
         <div className="eo-ico"><Icon n="type" /></div>
-        <div className="eo-txt"><div className="eo-t">Text hook</div><div className="eo-d">A scroll-stopping opener overlaid on the clip</div></div>
+        <div className="eo-txt"><div className="eo-t">Text hook</div><div className="eo-d">0.5s flash-intro card before the clip starts</div></div>
         <Switch on={on} onChange={onToggle} />
       </div>
       {on && (
@@ -162,6 +181,17 @@ export function HookTab({ on, onToggle, bulk, text, onText, style, onStyle, posi
               options={[{ id: 'S', label: 'Small' }, { id: 'M', label: 'Medium' }, { id: 'L', label: 'Large' }]} />
           </div>
           <HookStyleControls style={style} set={onStyle} />
+          {onRegenerateAvatarsChange && (
+            <div className="edit-opt" style={{ marginTop: 14 }}>
+              <div className="eo-txt">
+                <div className="eo-t">Regenerate avatars</div>
+                <div className="eo-d">
+                  Tries a different moment per speaker for the flash-intro cast photos.
+                </div>
+              </div>
+              <Switch on={!!regenerateAvatars} onChange={onRegenerateAvatarsChange} />
+            </div>
+          )}
         </div>
       )}
     </>

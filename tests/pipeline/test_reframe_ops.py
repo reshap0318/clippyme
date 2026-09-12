@@ -666,3 +666,62 @@ def test_normalize_letterbox_zoom_accepts_fractions_and_percentages():
 def test_normalize_letterbox_zoom_rejects_garbage():
     with pytest.raises(ValueError):
         ro.normalize_letterbox_zoom("abc")
+
+
+# --- speech-span gating -------------------------------------------------------
+
+def test_clip_relative_speech_spans_shifts_and_clips_to_bounds():
+    words = [
+        {"start": 8.0, "end": 8.4},   # before the clip window entirely
+        {"start": 9.8, "end": 10.3},  # straddles clip_start=10
+        {"start": 12.0, "end": 12.5},
+        {"start": 30.0, "end": 30.5},  # after clip_end=20
+    ]
+    spans = ro.clip_relative_speech_spans(words, clip_start=10.0, clip_end=20.0)
+    assert spans[0] == pytest.approx((0.0, 0.3))
+    assert spans[1] == pytest.approx((2.0, 2.5))
+
+
+def test_clip_relative_speech_spans_merges_small_gaps():
+    words = [{"start": 1.0, "end": 1.2}, {"start": 1.3, "end": 1.6}]  # 0.1s gap
+    spans = ro.clip_relative_speech_spans(words, clip_start=0.0, clip_end=5.0, merge_gap=0.3)
+    assert spans == [(1.0, 1.6)]
+
+
+def test_is_speech_at_true_inside_span_and_pad():
+    spans = [(2.0, 4.0)]
+    assert ro.is_speech_at(3.0, spans)
+    assert ro.is_speech_at(1.8, spans, pad=0.25)   # just before, within pad
+    assert not ro.is_speech_at(1.0, spans, pad=0.25)
+
+
+# --- letterbox fill -----------------------------------------------------------
+
+def test_normalize_letterbox_fill_defaults_to_black():
+    assert ro.normalize_letterbox_fill(None) == "black"
+    assert ro.normalize_letterbox_fill("") == "black"
+
+
+def test_normalize_letterbox_fill_accepts_blur_case_insensitive():
+    assert ro.normalize_letterbox_fill("blur") == "blur"
+    assert ro.normalize_letterbox_fill("BLUR") == "blur"
+
+
+def test_normalize_letterbox_fill_rejects_garbage():
+    with pytest.raises(ValueError):
+        ro.normalize_letterbox_fill("rainbow")
+
+
+# --- salient centroid ---------------------------------------------------------
+
+def test_salient_centroid_2d_finds_the_bright_spot():
+    energy = np.zeros((10, 20))
+    energy[2, 15] = 100.0  # one hot pixel, off-center
+    cx, cy = ro.salient_centroid_2d(energy)
+    assert cx == pytest.approx(15.0)
+    assert cy == pytest.approx(2.0)
+
+
+def test_salient_centroid_2d_falls_back_to_geometric_center_when_blank():
+    cx, cy = ro.salient_centroid_2d(np.zeros((10, 20)))
+    assert (cx, cy) == (10.0, 5.0)

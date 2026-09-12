@@ -19,6 +19,9 @@ import { allPresets, getDefaultPresetOpts, getDefaultPresetId, saveUserPreset, d
 import { HOOK_STYLE_DEFAULT } from './data';
 import { clipStateToParams, buildBulkPlan } from '../lib/bulkApply';
 import { runApplyEdit } from '../lib/applyEdit';
+import {
+  seedToggles, seedHookParams, seedSubtitleParams, seedLogoParams, seedGradeParams, seedBannerParams,
+} from '../lib/seedClipParams';
 
 import { useJobSubmission } from '../hooks/useJobSubmission';
 import { useJobPolling } from '../hooks/useJobPolling';
@@ -30,7 +33,7 @@ import { useBackendStatus } from '../hooks/useBackendStatus';
 const DEFAULT_OPTS = {
   mode: 'single', source: 'url', url: '', file: null, fileName: '', batch: '', batchFiles: [], instructions: '',
   clipsAuto: true, clips: 7, aspect: '9:16',
-  detect: true, reframeMode: 'auto', letterboxZoom: 0, smartcut: true, zoom: true, model: '',
+  detect: true, reframeMode: 'auto', letterboxZoom: 0, letterboxFill: 'black', smartcut: true, zoom: true, model: '',
   subtitles: true, subMode: 'karaoke', subPreset: 'hormozi_bold',
   // Bottom-left is the default reading position: low enough to stay out of the
   // picture, left so it clears the right-edge social UI.
@@ -258,25 +261,36 @@ export default function RedesignApp() {
 
   const startJob = () => {
     const pre = optsToPreselections(opts);
-    // The backend has no clip-count parameter — Gemini decides how many clips
-    // the video is worth. When the user opts out of Auto and sets a target, we
-    // pass it as a soft hint in the instructions (Gemini may still return more
-    // or fewer based on the content).
-    let instructions = opts.instructions || '';
-    if (!opts.clipsAuto) {
-      instructions = `${instructions} Aim for roughly ${opts.clips} clips.`.trim();
-    }
+    // Clip-count target rides preselections.target_clips (a real Gemini-prompt
+    // parameter — see gemini_request.build_viral_prompt) instead of being
+    // appended as free text here; Auto omits it entirely.
+    const instructions = opts.instructions || '';
+    // Create-time recipe seed — the SAME toggles/params shape compose_layers
+    // expects (built with the shared seedClipParams helpers, not re-derived
+    // here), persisted by the orchestrator into every clip's `last_edit` the
+    // moment the clip list first exists. `seedHookParams(null, pre)` omits
+    // hook `text` on purpose — no clip/viral_hook_text exists yet at Create
+    // time, so text still falls back correctly once a clip is actually seen.
+    const toggles = seedToggles(pre);
+    const recipe = Object.values(toggles).some(Boolean) ? {
+      toggles,
+      hook_params: toggles.hook ? seedHookParams(null, pre) : {},
+      subtitle_params: toggles.subtitles ? seedSubtitleParams(pre) : {},
+      logo_params: toggles.logo ? seedLogoParams(pre) : {},
+      grade_params: toggles.grade ? seedGradeParams(pre) : {},
+      banner_params: toggles.banner ? seedBannerParams(pre) : {},
+    } : undefined;
     if (opts.mode === 'single') {
       if (opts.source === 'url') {
         if (!opts.url.trim()) return;
-        handleProcess({ type: 'url', payload: opts.url.trim(), instructions, preselections: pre });
+        handleProcess({ type: 'url', payload: opts.url.trim(), instructions, preselections: pre, recipe });
       } else {
         if (!opts.file) return;
-        handleProcess({ type: 'file', payload: opts.file, instructions, preselections: pre });
+        handleProcess({ type: 'file', payload: opts.file, instructions, preselections: pre, recipe });
       }
     } else {
       const urls = opts.batch.split('\n').map((l) => l.trim()).filter(Boolean);
-      handleBatchProcess({ urls, files: opts.batchFiles, instructions, preselections: pre });
+      handleBatchProcess({ urls, files: opts.batchFiles, instructions, preselections: pre, recipe });
     }
   };
 
@@ -418,6 +432,7 @@ export default function RedesignApp() {
     const srcParams = {
       reframeMode: params.reframeMode,
       letterboxZoom: params.letterboxZoom,
+      letterboxFill: params.letterboxFill,
       toggles: params.toggles,
       subtitleParams: params.subtitleParams,
       hookParams: params.hookParams,

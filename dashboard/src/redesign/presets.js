@@ -14,7 +14,7 @@ const DEFAULT_KEY = 'clippyme_default_preset_v1';
 // boolean) is retained only for back-compat reads; `reframeMode` is the live
 // 3-mode control.
 export const PRESET_KEYS = [
-  'clipsAuto', 'clips', 'aspect', 'detect', 'reframe', 'reframeMode', 'letterboxZoom', 'model',
+  'clipsAuto', 'clips', 'aspect', 'detect', 'reframe', 'reframeMode', 'letterboxZoom', 'letterboxFill', 'model',
   'smartcut', 'zoom',
   'subtitles', 'subMode', 'subPreset', 'subPosition', 'subAlign', 'subFont', 'subColor',
   'subStroke', 'subFontSize', 'subOutlineW', 'subBg', 'subOffsetY',
