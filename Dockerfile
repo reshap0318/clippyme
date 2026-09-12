@@ -8,7 +8,16 @@ ARG GPU_RUNTIME=cpu
 # ============================================================
 # Stage 2a: NVIDIA CUDA runtime (x86_64 only)
 # ============================================================
-FROM nvidia/cuda:12.3.2-cudnn9-runtime-ubuntu22.04 AS runtime-nvidia
+# ubuntu24.04 (glibc 2.39), not ubuntu22.04 (glibc 2.35): the pinned
+# auto-editor Nim binary below needs GLIBC_2.38+/GLIBCXX_3.4.32+ — recent
+# auto-editor releases are built on a newer runner and simply don't run on
+# 22.04's older glibc (confirmed: every release from 29.0.0 through current
+# fails the same way). Stays on the CUDA 12.x line (12.9.1, not a 13.x jump)
+# since the installed torch wheel already bundles its own CUDA 13 pip
+# libraries (nvidia-cuda-runtime-cu13 etc.) — this base image only needs to
+# provide a compatible libcuda.so stub for the NVIDIA container runtime, not
+# match torch's CUDA version.
+FROM nvidia/cuda:12.9.1-cudnn-runtime-ubuntu24.04 AS runtime-nvidia
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
@@ -91,6 +100,16 @@ ENV PYTHONUNBUFFERED=1
 # system-wide install in /usr/local/bin when a newer version is available.
 ENV PATH=/app/data/bin:$PATH
 
+# This container has no real IPv6 route to the internet (Docker Desktop
+# default networking), but glibc's getaddrinfo() still returns AAAA records
+# ahead of A ones for dual-stack hosts like generativelanguage.googleapis.com
+# — so any client that tries the IPv6 address first (Python's socket/httpx
+# stack does, with no automatic IPv4 fallback) hits "Network unreachable"
+# and every Gemini call fails outright (silently falling back to the no-AI
+# TextTiling path). This standard glibc precedence rule makes IPv4-mapped
+# addresses win the sort, matching what's actually routable here.
+RUN echo "precedence ::ffff:0:0/96  100" >> /etc/gai.conf
+
 # Install Python deps. CUDA pip wheels (nvidia-cublas-cu12, cudnn) are only
 # needed on the GPU path — skipping them on CPU saves ~500 MB per image.
 #
@@ -121,9 +140,15 @@ ARG ENABLE_WHISPER_DIARIZE=0
 COPY requirements.lock requirements.txt requirements-runtime-tools.txt ./
 # BuildKit cache mount: pip's download cache lives in the mount (shared across
 # rebuilds) and is NOT baked into the image layer.
+# --ignore-installed: on Ubuntu 24.04 python3.11 (deadsnakes) shares its
+# dist-packages path with a few apt-installed Python modules (e.g.
+# pyparsing) that carry no pip RECORD file, so a plain `pip install` aborts
+# trying (and failing) to uninstall them first. This installs pip's own
+# copies alongside instead of touching the apt-owned ones — never needed on
+# the old ubuntu22.04 base.
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
-    pip install -r requirements.lock -r requirements-runtime-tools.txt && \
+    pip install --ignore-installed -r requirements.lock -r requirements-runtime-tools.txt && \
     if [ "$GPU_RUNTIME" = "nvidia" ]; then \
         pip install nvidia-cublas-cu12 && \
         SITE=$(python -c "import site; print(site.getsitepackages()[0])") && \

@@ -94,6 +94,7 @@ export function useJobSubmission({
               payload: f,
               instructions: data.instructions,
               preselections: data.preselections,
+              recipe: data.recipe,
             }),
             apiKey,
           );

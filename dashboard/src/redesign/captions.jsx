@@ -43,35 +43,51 @@ const canonReframe = (m) => (m === 'object' ? 'subject' : (m || 'auto'));
 
 export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselections, sourceBanner,
                                 bulk = false, targetCount = 0, onClose, onApply }) {
-  const t0 = initial?.toggles || {};
-  const sp = initial?.subtitleParams || {};
+  // Backend-persisted recipe from the LAST successful compose/reframe on this
+  // clip (clip_resolve.persist_clip_recipe) — survives a reload/restart,
+  // unlike `initial` (this session's in-memory clip state, reset on refresh).
+  // Seed order everywhere below: this session's edit → the persisted recipe
+  // → the Create-time pre-selection → a hardcoded default.
+  const persisted = clip.last_edit || {};
+  const t0 = initial?.toggles || persisted.toggles || {};
+  const sp = initial?.subtitleParams || persisted.subtitle_params || {};
   const pre = preselections || {};
   const preSubs = pre.subtitles || {};
 
   // Current on-disk reframe mode (what a fresh reframe would diff against).
-  const baseMode = canonReframe(appliedMode || initial?.reframeMode || clip.reframe_mode || 'auto');
+  const baseMode = canonReframe(
+    appliedMode || initial?.reframeMode || persisted.reframe_mode || clip.reframe_mode || 'auto',
+  );
 
   const [tab, setTab] = useState('reframe');
   const [reframeMode, setReframeMode] = useState(baseMode);
-  const [letterboxZoom, setLetterboxZoom] = useState(Number(initial?.letterboxZoom) || 0);
+  const [letterboxZoom, setLetterboxZoom] = useState(
+    Number(initial?.letterboxZoom ?? persisted.letterbox_zoom) || 0,
+  );
+  const [letterboxFill, setLetterboxFill] = useState(
+    initial?.letterboxFill || persisted.letterbox_fill || 'black',
+  );
+  const [forceReframe, setForceReframe] = useState(false);
   const [smartcut, setSmartcut] = useState(t0.smartcut ?? !!pre.smartcut);
   const [subsOn, setSubsOn] = useState(t0.subtitles ?? !!pre.subtitles);
   const [hookOn, setHookOn] = useState(t0.hook ?? !!pre.hook);
   const [logoOn, setLogoOn] = useState(t0.logo ?? !!pre.logo);
   const [bannerOn, setBannerOn] = useState(t0.banner ?? !!(pre.banner || sourceBanner));
 
-  const lp0 = initial?.logoParams || seedLogoParams(preselections);
+  const lp0 = initial?.logoParams || persisted.logo_params || seedLogoParams(preselections);
   const [logo, setLogo] = useState(() => ({
     position: lp0.position || 'top-right',
     size: lp0.size || 'M',
   }));
   // Colour grade (video-use-style). Preset 'none' = grade layer off.
-  const gp0 = initial?.gradeParams || seedGradeParams(preselections);
+  const gp0 = initial?.gradeParams || persisted.grade_params || seedGradeParams(preselections);
   const [gradePreset, setGradePreset] = useState(gp0.preset || 'none');
 
-  // Attribution banner (platform logo + handle). Seeded prior-edit → Create
-  // pre-selection → the job's own source_info auto-suggestion → off.
-  const bp0 = initial?.bannerParams || seedBannerParams(preselections, sourceBanner);
+  // Attribution banner (platform logo + handle). Seeded prior-edit → the
+  // persisted recipe → Create pre-selection → the job's own source_info
+  // auto-suggestion → off.
+  const bp0 = initial?.bannerParams || persisted.banner_params
+    || seedBannerParams(preselections, sourceBanner);
   const [banner, setBanner] = useState(() => ({
     platform: bp0.platform || 'kick',
     handle: bp0.handle || '',
@@ -101,15 +117,26 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
   }));
 
   const [hookText, setHookText] = useState(
-    initial?.hookParams?.text || clip.viral_hook_text || clip.hook_text || '',
+    initial?.hookParams?.text || persisted.hook_params?.text
+      || clip.viral_hook_text || clip.hook_text || '',
   );
   // IG-Stories hook style: seed from a prior edit, else the pre-selection.
   const [hookStyle, setHookStyle] = useState(
-    () => pickHookStyle(initial?.hookParams || (preselections || {}).hook),
+    () => pickHookStyle(initial?.hookParams || persisted.hook_params || (preselections || {}).hook),
   );
-  const hp0 = initial?.hookParams || {};
+  const hp0 = initial?.hookParams || persisted.hook_params || {};
   const [hookPosition, setHookPosition] = useState(hp0.position || pre.hook?.position || 'top');
   const [hookSize, setHookSize] = useState(hp0.size || pre.hook?.size || 'S');
+  // Flash-intro avatar "regenerate" — rotates which candidate window/frame
+  // hooks._pick_speaker_avatars tries first per speaker (see its `seed`
+  // param). `baseAvatarSeed` is whatever got persisted last time (so an
+  // unrelated Apply doesn't silently discard a prior regenerate); the
+  // switch itself is a per-session ACTION (like Force re-render), so it
+  // always opens OFF regardless of that — flipping it on tries ONE step
+  // further than the last saved pick, not a fixed seed=1.
+  const baseAvatarSeed = Number(hp0.avatar_seed) || 0;
+  const [regenerateAvatars, setRegenerateAvatars] = useState(false);
+  const avatarSeed = regenerateAvatars ? baseAvatarSeed + 1 : baseAvatarSeed;
 
   // Manual trim (flycut-style) — transcript load + dropped set + AI trim.
   // Resolve to the backend's ABSOLUTE `shorts` position, not the array
@@ -118,7 +145,7 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
   const trim = useManualTrim({
     jobId, idx: clip.original_index ?? idx,
     active: !bulk && tab === 'trim',
-    initialDropRanges: initial?.dropRanges,
+    initialDropRanges: initial?.dropRanges || persisted.drop_ranges,
   });
   // Dropped spans for the backend. Never in bulk (per-clip content).
   const dropRanges = bulk ? [] : trim.dropRanges;
@@ -138,19 +165,22 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
   ].filter(Boolean);
 
   const gradeOn = gradePreset && gradePreset !== 'none';
-  const baseZoom = Number(initial?.letterboxZoom) || 0;
+  const baseZoom = Number(initial?.letterboxZoom ?? persisted.letterbox_zoom) || 0;
+  const baseFill = initial?.letterboxFill || persisted.letterbox_fill || 'black';
   const reframeChanged = reframeMode !== baseMode
-    || (reframeMode === 'disabled' && letterboxZoom !== baseZoom);
+    || (reframeMode === 'disabled' && (letterboxZoom !== baseZoom || letterboxFill !== baseFill));
   // Manual trim must run the Smart Cut compose stage (drop_ranges only apply
   // inside _apply_smartcut backend-side), so dropping text implies smartcut.
   const effSmartcut = smartcut || hasDrops;
   const anyCompose = effSmartcut || subsOn || hookOn || logoOn || gradeOn || bannerOn;
-  const willReprocess = reframeChanged || anyCompose;
+  const willReprocess = reframeChanged || anyCompose || forceReframe;
 
   // Non-blocking apply: seed the full param shape the compose backend expects,
   // layer the user's edits on top, hand it to the parent for BACKGROUND
-  // processing, and close immediately.
-  const apply = ({ forceReframe = false } = {}) => {
+  // processing, and close immediately. `forceReframe` is read from the
+  // Reframe tab's toggle (not a param anymore — see ReframeTab) unless a
+  // caller overrides it explicitly.
+  const apply = ({ forceReframe: forceReframeArg = forceReframe } = {}) => {
     // Build from the clean seed + current UI state only (no raw `...sp` spread,
     // which would leak stale style keys into a karaoke re-compose).
     const subtitleParams = { ...seedSubtitleParams(preselections),
@@ -161,14 +191,14 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
             font_color: subs.font_color, outline_color: subs.outline_color }
         : { font: subs.font, font_color: subs.font_color, border_width: subs.border_width,
             bg_opacity: subs.bg ? 0.6 : 0, bg_color: '#000000' }) };
-    const hookParams = { ...seedHookParams(clip, preselections), ...(initial?.hookParams || {}), ...hookStyle,
-      position: hookPosition, size: hookSize, text: hookText };
+    const hookParams = { ...seedHookParams(clip, preselections), ...(initial?.hookParams || persisted.hook_params || {}), ...hookStyle,
+      position: hookPosition, size: hookSize, text: hookText, avatar_seed: avatarSeed };
     const logoParams = { position: logo.position, size: logo.size };
     const gradeParams = { preset: gradePreset };
     const bannerParams = { enabled: bannerOn, platform: banner.platform, handle: banner.handle, y_pct: banner.y_pct };
     const toggles = { smartcut: effSmartcut, subtitles: subsOn, hook: hookOn, logo: logoOn, grade: gradeOn, banner: bannerOn };
-    onApply({ reframeMode, baseMode, letterboxZoom, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams,
-      dropRanges: effSmartcut ? dropRanges : [], forceReframe });
+    onApply({ reframeMode, baseMode, letterboxZoom, letterboxFill, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams,
+      dropRanges: effSmartcut ? dropRanges : [], forceReframe: forceReframeArg });
   };
 
   return (
@@ -211,7 +241,9 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
             {tab === 'reframe' && (
               <ReframeTab mode={reframeMode} onChange={setReframeMode}
                 zoom={letterboxZoom} onZoomChange={setLetterboxZoom}
-                onRetry={bulk ? undefined : () => apply({ forceReframe: true })} />
+                fill={letterboxFill} onFillChange={setLetterboxFill}
+                forceReframe={bulk ? undefined : forceReframe}
+                onForceReframeChange={bulk ? undefined : setForceReframe} />
             )}
             {tab === 'smartcut' && <SmartCutTab on={smartcut} onChange={setSmartcut} bulk={bulk} />}
             {tab === 'trim' && !bulk && <TrimTab trim={trim} />}
@@ -224,7 +256,9 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
                 text={hookText} onText={setHookText} style={hookStyle}
                 onStyle={(partial) => setHookStyle((s) => ({ ...s, ...partial }))}
                 position={hookPosition} onPositionChange={setHookPosition}
-                size={hookSize} onSizeChange={setHookSize} />
+                size={hookSize} onSizeChange={setHookSize}
+                regenerateAvatars={regenerateAvatars}
+                onRegenerateAvatarsChange={setRegenerateAvatars} />
             )}
             {tab === 'logo' && (
               <LogoTab on={logoOn} onToggle={setLogoOn} logo={logo}

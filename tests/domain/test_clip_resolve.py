@@ -11,7 +11,7 @@ import time
 import pytest
 
 from clippyme.domain.clip_resolve import (
-    clip_filename_for, composed_clip_basename, resolve_clip,
+    clip_filename_for, composed_clip_basename, persist_clip_recipe, resolve_clip,
 )
 from clippyme.domain.errors import NotFoundError
 
@@ -85,6 +85,41 @@ def test_missing_file_404_only_when_required(tmp_path, job_dir):
     r = resolve_clip(JOB_ID, 0, str(tmp_path), require_file=False)
     assert r.clip_filename == "vid_clip_1.mp4"
     assert not os.path.exists(r.clip_path)
+
+
+# --- persist_clip_recipe ----------------------------------------------------
+
+def test_persist_clip_recipe_writes_to_disk(tmp_path, job_dir):
+    _write_meta(job_dir, "vid_metadata.json", [{"start": 0, "end": 5}])
+    (job_dir / "vid_clip_1.mp4").write_bytes(b"\x00")
+    r = resolve_clip(JOB_ID, 0, str(tmp_path))
+
+    persist_clip_recipe(r, {"toggles": {"hook": True}, "hook_params": {"text": "Hi"}})
+
+    with open(r.metadata_path) as f:
+        saved = json.load(f)
+    assert saved["shorts"][0]["last_edit"] == {
+        "toggles": {"hook": True}, "hook_params": {"text": "Hi"},
+    }
+
+
+def test_persist_clip_recipe_merges_not_overwrites(tmp_path, job_dir):
+    # reframe's own persist call (reframe_mode/zoom/fill) must survive a later
+    # compose call (toggles/hook_params/...) writing the SAME last_edit blob,
+    # and vice versa — neither call site knows about the other's fields.
+    _write_meta(job_dir, "vid_metadata.json", [{"start": 0, "end": 5}])
+    (job_dir / "vid_clip_1.mp4").write_bytes(b"\x00")
+    r1 = resolve_clip(JOB_ID, 0, str(tmp_path))
+    persist_clip_recipe(r1, {"reframe_mode": "auto", "letterbox_zoom": 0})
+
+    r2 = resolve_clip(JOB_ID, 0, str(tmp_path))
+    persist_clip_recipe(r2, {"toggles": {"hook": True}})
+
+    with open(r2.metadata_path) as f:
+        saved = json.load(f)
+    assert saved["shorts"][0]["last_edit"] == {
+        "reframe_mode": "auto", "letterbox_zoom": 0, "toggles": {"hook": True},
+    }
 
 
 # --- clip_filename_for: task 4b preference chain ---------------------------

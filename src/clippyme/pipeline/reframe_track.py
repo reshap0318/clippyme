@@ -109,6 +109,13 @@ class SmoothedCameraman:
         self.current_zoom = 1.0
         self.target_zoom = 1.0
 
+        # Lost-subject drift target — defaults to the geometric frame center;
+        # the cv2-owning render loop can override it via set_recovery_center()
+        # with a content-aware point (e.g. saliency centroid) once a subject
+        # has been missing for a while. See get_crop_box's drift_to_center calls.
+        self.recovery_center_x = video_width / 2
+        self.recovery_center_y = video_height / 2
+
         self.safe_zone_radius_x = self.max_crop_width * float(os.getenv("REFRAME_DEADZONE_X", "0.05"))
         self.safe_zone_radius_y = self.max_crop_height * float(os.getenv("REFRAME_DEADZONE_Y", "0.08"))
         self.frames_since_target = 0
@@ -157,6 +164,17 @@ class SmoothedCameraman:
                     max_zoom=1.6,
                 )
 
+    def set_recovery_center(self, x, y):
+        """Override the lost-subject drift target for the current lost streak.
+
+        Called by the render loop once ``frames_since_target`` crosses
+        ``lost_hold_frames`` (i.e. drift is actually about to kick in) — cheap
+        no-op before that, since drift_to_center ignores this value while a
+        subject is still being tracked or within the hold window.
+        """
+        self.recovery_center_x = x
+        self.recovery_center_y = y
+
     def _ease_axis(self, current: float, target: float, safe_radius: float, fast_ref: float) -> float:
         difference = target - current
         if abs(difference) <= safe_radius:
@@ -181,14 +199,14 @@ class SmoothedCameraman:
             if self.frames_since_target > self.lost_hold_frames:
                 self.target_center_x = drift_to_center(
                     self.target_center_x,
-                    self.video_width / 2,
+                    self.recovery_center_x,
                     self.frames_since_target,
                     self.lost_hold_frames,
                     self.lost_drift_rate,
                 )
                 self.target_center_y = drift_to_center(
                     self.target_center_y,
-                    self.video_height / 2,
+                    self.recovery_center_y,
                     self.frames_since_target,
                     self.lost_hold_frames,
                     self.lost_drift_rate,
@@ -373,7 +391,7 @@ class SpeakerTracker:
         variance = sum((sample - mean) ** 2 for sample in history) / len(history)
         return min(variance * 200.0, 3.0)
 
-    def get_target(self, face_candidates, frame_number, width):
+    def get_target(self, face_candidates, frame_number, width, is_speech=True):
         # Prune expired identities before matching. Otherwise long
         # streams accumulate an ever-growing candidate list.
         self.known_faces = [
@@ -412,11 +430,30 @@ class SpeakerTracker:
             }
             current.append(candidate)
             self.last_seen[face_id] = frame_number
-            if candidate["mar"] is not None:
+            if is_speech and candidate["mar"] is not None:
                 history = self.mar_history.setdefault(face_id, [])
                 history.append(float(candidate["mar"]))
                 if len(history) > self.MAR_WINDOW_SIZE:
                     del history[:-self.MAR_WINDOW_SIZE]
+
+        if not is_speech:
+            # No confirmed speech this frame (per the transcript) — mouth
+            # motion alone can't be trusted (laughing/chewing/yawning look the
+            # same as talking to MAR), so don't let it reassign or promote the
+            # active speaker. Hold the current lock; only fall back to the
+            # largest face if nothing is locked yet (e.g. clip opens on silence).
+            active = next((item for item in current if item["id"] == self.active_speaker_id), None)
+            if active is not None:
+                return active["box"]
+            if not current:
+                return None
+            # Nothing locked yet (clip opens on silence) — provisionally lock
+            # onto the largest face so this pick is stable frame-to-frame
+            # instead of re-deciding among similarly-sized faces every frame.
+            fallback = max(current, key=lambda item: item["score"])
+            self.active_speaker_id = fallback["id"]
+            self.last_switch_frame = frame_number
+            return fallback["box"]
 
         visible_ids = {candidate["id"] for candidate in current}
         for face_id in list(self.speaker_scores):

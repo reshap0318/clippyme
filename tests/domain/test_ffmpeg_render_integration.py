@@ -6,7 +6,8 @@ ffmpeg invocations are VALID and produce a playable file (real ffmpeg needed →
 Covers:
   #1  smartcut afade segment render (audio fades at concat boundaries)
   #4  grade.apply_grade colour pass
-  #5  hooks.add_hook_to_video animated entrance (build_hook_overlay_filter)
+  #5  hooks.add_intro_flash (hook renders ONLY as the flash-intro card now,
+      never an on-video overlay — see hooks.py / compose.py)
 """
 import os
 import subprocess
@@ -71,24 +72,58 @@ def test_grade_none_is_noop(clip, tmp_path):
     assert not os.path.exists(out)
 
 
-def test_animated_hook_renders(clip, tmp_path):
-    from clippyme.domain.hooks import add_hook_to_video
+def _duration(path):
+    out = subprocess.check_output(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", path]
+    ).decode().strip()
+    return float(out)
 
-    out = str(tmp_path / "hooked.mp4")
-    ok = add_hook_to_video(clip, "HELLO WORLD", out, position="top",
-                           style={"animate": True})
+
+def test_intro_flash_prepends_a_short_card(clip, tmp_path):
+    from clippyme.domain.hooks import add_intro_flash
+
+    out = str(tmp_path / "flashed.mp4")
+    ok = add_intro_flash(clip, "WAIT FOR IT", out, duration=0.5)
     assert ok is True
     assert os.path.getsize(out) > 0
     s = _streams(out)
     assert "video" in s and "audio" in s
+    # Original clip fixture is 2s; the flash adds ~0.5s on top.
+    assert _duration(out) == pytest.approx(2.5, abs=0.3)
 
 
-def test_static_hook_still_renders(clip, tmp_path):
-    from clippyme.domain.hooks import add_hook_to_video
+def test_intro_flash_uses_frame_source_not_video_path(clip, tmp_path):
+    """Regression: the flash's background/avatar frame must come from
+    ``frame_source_path``, never ``video_path`` — extracting frame 0 from an
+    already-composed clip (hook/subs/logo burned in) would bake those
+    overlays right into the blurred background and any face crop.
+    """
+    from clippyme.domain.hooks import add_intro_flash
 
-    out = str(tmp_path / "hooked_static.mp4")
-    assert add_hook_to_video(clip, "STATIC", out, style={"animate": False}) is True
-    assert os.path.getsize(out) > 0
+    # A "composed" clip whose frame 0 is visually distinct (solid red) from
+    # the clean `clip` fixture (grey testsrc) — easy to tell apart by pixel.
+    composed = str(tmp_path / "composed.mp4")
+    subprocess.run([
+        "ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=red:size=320x240:duration=2",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", composed,
+    ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+    out = str(tmp_path / "flashed_clean_source.mp4")
+    ok = add_intro_flash(composed, "HOOK", out, duration=0.5, frame_source_path=clip)
+    assert ok is True
+
+    frame_png = str(tmp_path / "flash_frame.png")
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", out, "-vf", r"select=eq(n\,2)", "-vframes", "1", frame_png],
+        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+    )
+    from PIL import Image
+    r, g, b = Image.open(frame_png).convert("RGB").getpixel((5, 5))
+    assert not (r > 200 and g < 60 and b < 60), (
+        "flash background leaked from `composed` (red) instead of frame_source_path"
+    )
 
 
 def test_smartcut_afade_segments_render(clip, tmp_path):
@@ -100,43 +135,6 @@ def test_smartcut_afade_segments_render(clip, tmp_path):
     assert ok is True
     assert os.path.getsize(out) > 0
     assert "audio" in _streams(out)
-
-
-def _make_logo_png(path):
-    from PIL import Image
-    Image.new("RGBA", (64, 64), (255, 0, 0, 200)).save(path)
-
-
-def test_hook_plus_logo_single_pass_renders(clip, tmp_path):
-    """Wave-5 fusion: hook + brand logo composited in ONE encode."""
-    from clippyme.domain.hooks import add_hook_to_video
-
-    logo_png = str(tmp_path / "logo.png")
-    _make_logo_png(logo_png)
-    out = str(tmp_path / "hook_logo.mp4")
-    ok = add_hook_to_video(
-        clip, "BRANDED", out, position="top", style={"animate": False},
-        logo={"path": logo_png, "position": "top-right",
-              "scale": 0.2, "opacity": 0.9, "margin": 0.04},
-    )
-    assert ok is True
-    assert os.path.getsize(out) > 0
-    s = _streams(out)
-    assert "video" in s and "audio" in s
-
-
-def test_hook_plus_logo_animated_renders(clip, tmp_path):
-    from clippyme.domain.hooks import add_hook_to_video
-
-    logo_png = str(tmp_path / "logo.png")
-    _make_logo_png(logo_png)
-    out = str(tmp_path / "hook_logo_anim.mp4")
-    ok = add_hook_to_video(
-        clip, "ANIMATED", out, position="top", style={"animate": True},
-        logo={"path": logo_png, "position": "bottom-right", "scale": 0.15},
-    )
-    assert ok is True
-    assert os.path.getsize(out) > 0
 
 
 def test_burn_subtitles_with_grade_prevf_renders(clip, tmp_path):

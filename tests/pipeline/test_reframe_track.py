@@ -93,6 +93,21 @@ def test_lost_subject_drifts_back_to_center():
     assert cam.target_center_x > parked  # eased back toward source center
 
 
+def test_lost_subject_drifts_to_recovery_center_when_set():
+    cam = SmoothedCameraman(608, 1080, 1920, 1080)
+    cam.lost_hold_frames = 3
+    cam.update_target((0, 0, 100, 100))  # park the target far left
+    cam.get_crop_box(force_snap=True)
+    parked = cam.target_center_x
+    # A content-aware point far to the right, instead of the geometric center.
+    cam.set_recovery_center(1800, 900)
+    for _ in range(20):
+        cam.get_crop_box()
+    assert cam.target_center_x > parked
+    assert cam.target_center_x != pytest.approx(1920 / 2, abs=50)  # not the plain center
+    assert cam.target_center_y > 1080 / 2  # eased toward the recovery point, not center
+
+
 # --- DetectionSmoother --------------------------------------------------------
 
 def test_detection_smoother_averages_jitter():
@@ -148,3 +163,37 @@ def test_speaker_tracker_reset_forgets_identities():
     assert st.active_speaker_id is not None
     st.reset(frame_number=10)
     assert st.active_speaker_id is None and st.known_faces == []
+
+
+def test_speaker_tracker_stable_fallback_when_silent_from_the_start():
+    # No speech yet at all (clip opens mid-silence) — same two equally large
+    # faces every frame. Must not flip-flop between them frame to frame.
+    st = SpeakerTracker(cooldown_frames=5)
+    picks = set()
+    for frame in range(10):
+        box = st.get_target([_face(200, 0.1), _face(1500, 0.1)], frame, 1920, is_speech=False)
+        picks.add(box[0])
+    assert len(picks) == 1
+    assert st.active_speaker_id is not None
+
+
+def test_speaker_tracker_ignores_mouth_motion_without_speech():
+    # Left face locks in as the speaker while talking (is_speech=True). Then a
+    # right face starts flapping its mouth (laughing, not talking) during a
+    # transcript gap (is_speech=False) — it must not steal the lock.
+    st = SpeakerTracker(cooldown_frames=1)
+    for frame in range(10):
+        st.get_target(
+            [_face(200, 0.5 if frame % 2 else 0.1), _face(1500, 0.1)],
+            frame, 1920, is_speech=True,
+        )
+    locked = st.active_speaker_id
+    assert locked is not None
+    for frame in range(10, 40):
+        mar_right = 0.1 if frame % 2 == 0 else 0.9  # loudly "moving" mouth
+        box = st.get_target(
+            [_face(200, 0.1), _face(1500, mar_right)],
+            frame, 1920, is_speech=False,
+        )
+        assert st.active_speaker_id == locked
+        assert box[0] == 200

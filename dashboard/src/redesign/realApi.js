@@ -149,12 +149,13 @@ export async function exportClip(jobId, index, clip, state, preselections) {
   return 'composed';
 }
 
-export async function reframeClip(jobId, index, mode, letterboxZoom) {
+export async function reframeClip(jobId, index, mode, letterboxZoom, letterboxFill) {
   const zoom = Number(letterboxZoom) || 0;
+  const fill = letterboxFill && letterboxFill !== 'black' ? letterboxFill : '';
   const res = await apiFetch(getApiUrl(`/api/reframe/${jobId}/${index}`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reframe_mode: mode, ...(zoom ? { letterbox_zoom: zoom } : {}) }),
+    body: JSON.stringify({ reframe_mode: mode, ...(zoom ? { letterbox_zoom: zoom } : {}), ...(fill ? { letterbox_fill: fill } : {}) }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -419,6 +420,8 @@ export function optsToPreselections(opts) {
     // Fixed letterbox zoom (percent). Only meaningful with reframe 'disabled';
     // 0/absent = the whole frame between the black bars.
     letterbox_zoom: Number(opts.letterboxZoom) || 0,
+    // Bar fill for the same letterbox render: 'black' (default) or 'blur'.
+    letterbox_fill: opts.letterboxFill || 'black',
     aspect: opts.aspect || '9:16',
     language: opts.language,
     no_zoom: !opts.zoom,
@@ -427,6 +430,10 @@ export function optsToPreselections(opts) {
     // Per-job Gemini model override (quick-picker). Omitted when blank →
     // lib/api.js skips the field and the backend uses the Settings default.
     model: (opts.model || '').trim() || undefined,
+    // Soft "Set N" clip-count target — a real Gemini-prompt parameter (see
+    // gemini_request.build_viral_prompt), not a hard cap. Auto omits it
+    // entirely so Gemini keeps its own open 3-15 range.
+    target_clips: opts.clipsAuto ? undefined : opts.clips,
     subtitles: opts.subtitles
       ? {
           mode: opts.subMode, preset: opts.subPreset, position: opts.subPosition || 'bottom',

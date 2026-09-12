@@ -188,16 +188,24 @@ export function PublishModal({
   const clipsPerDay = Math.max(1, zernio?.clips_per_day || 1);
   const buildBody = (clip, idx, batchPos = 0) => {
     const cs = clipStates[idx] || {};
-    const toggles = cs.toggles ?? seedToggles(preselections);
+    // Backend-persisted recipe from the last successful compose/reframe on
+    // this clip (clip_resolve.persist_clip_recipe) — falls back to it when
+    // `cs` (this browser session's in-memory edit state) is empty, e.g. a
+    // reload or publishing straight from History without reopening Edit
+    // first. Without this, a reload silently reverts every param (avatar
+    // regenerate included) to the seed/pre-selection default at publish
+    // time, diverging from what the user last previewed.
+    const persisted = clip.last_edit || {};
+    const toggles = cs.toggles ?? persisted.toggles ?? seedToggles(preselections);
     const any = Object.values(toggles).some(Boolean);
-    const hookParams = cs.hookParams ?? seedHookParams(clip, preselections);
+    const hookParams = cs.hookParams ?? persisted.hook_params ?? seedHookParams(clip, preselections);
     const subtitleParams =
-      cs.subtitleParams ?? seedSubtitleParams(preselections);
-    const logoParams = cs.logoParams ?? seedLogoParams(preselections);
-    const gradeParams = cs.gradeParams ?? {
+      cs.subtitleParams ?? persisted.subtitle_params ?? seedSubtitleParams(preselections);
+    const logoParams = cs.logoParams ?? persisted.logo_params ?? seedLogoParams(preselections);
+    const gradeParams = cs.gradeParams ?? persisted.grade_params ?? {
       preset: preselections?.grade?.preset || "none",
     };
-    const bannerParams = cs.bannerParams ?? seedBannerParams(preselections);
+    const bannerParams = cs.bannerParams ?? persisted.banner_params ?? seedBannerParams(preselections);
     const title = (
       clip.video_title_for_youtube_short || `Clip ${idx + 1}`
     ).slice(0, 100);
@@ -240,7 +248,7 @@ export function PublishModal({
             logo_params: toggles.logo ? logoParams : {},
             grade_params: toggles.grade ? gradeParams : {},
             banner_params: toggles.banner ? bannerParams : {},
-            drop_ranges: toggles.smartcut ? cs.dropRanges || [] : [],
+            drop_ranges: toggles.smartcut ? (cs.dropRanges ?? persisted.drop_ranges ?? []) : [],
           }
         : {}),
     };

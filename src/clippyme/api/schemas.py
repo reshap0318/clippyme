@@ -81,98 +81,6 @@ def _validate_timezone(value: Optional[str]) -> Optional[str]:
     return normalized
 
 
-class ProcessRequest(BaseModel):
-    url: str = Field(..., max_length=2048)
-    instructions: Optional[str] = Field(None, max_length=MAX_INSTRUCTIONS_LEN)
-    reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object)$")
-    # Fixed zoom for the letterbox render. 0 (default) = whole frame between
-    # the bars; the dashboard sends a percentage (5-15), normalized downstream.
-    letterbox_zoom: Optional[float] = Field(None, ge=0, le=15)
-    aspect: Optional[str] = Field(None, pattern=r"^(9:16|1:1|16:9)$")
-    language: Optional[str] = Field(None, max_length=16)
-    no_zoom: Optional[bool] = False
-    skip_analysis: Optional[bool] = False
-    model: Optional[str] = Field(
-        None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
-    )
-
-    @field_validator("url")
-    @classmethod
-    def _validate_url(cls, value: str) -> str:
-        if value == "https://upload.invalid/local":
-            return value
-        return validate_public_url(value)
-
-    @field_validator("language")
-    @classmethod
-    def _bound_language(cls, value: Optional[str]) -> Optional[str]:
-        return _validate_language(value)
-
-
-class BatchRequest(BaseModel):
-    urls: List[str] = Field(..., min_length=1, max_length=20)
-    instructions: Optional[str] = Field(None, max_length=MAX_INSTRUCTIONS_LEN)
-    reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object)$")
-    # Fixed zoom for the letterbox render. 0 (default) = whole frame between
-    # the bars; the dashboard sends a percentage (5-15), normalized downstream.
-    letterbox_zoom: Optional[float] = Field(None, ge=0, le=15)
-    aspect: Optional[str] = Field(None, pattern=r"^(9:16|1:1|16:9)$")
-    language: Optional[str] = Field(None, max_length=16)
-    no_zoom: Optional[bool] = False
-    skip_analysis: Optional[bool] = False
-    model: Optional[str] = Field(
-        None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
-    )
-
-    @field_validator("urls")
-    @classmethod
-    def _validate_urls(cls, values: List[str]) -> List[str]:
-        cleaned = [validate_public_url(url) for url in values if (url or "").strip()]
-        if not cleaned:
-            raise ValueError("at least one non-blank URL is required")
-        return cleaned
-
-    @field_validator("language")
-    @classmethod
-    def _bound_language(cls, value: Optional[str]) -> Optional[str]:
-        return _validate_language(value)
-
-
-_ALLOWED_CONFIG_KEYS = frozenset({
-    "GEMINI_API_KEY", "GEMINI_MODEL", "YOUTUBE_COOKIES", "HF_TOKEN",
-    "HUGGINGFACE_TOKEN", "DEEPGRAM_API_KEY", "ELEVENLABS_API_KEY",
-    "TRANSCRIPTION_PROVIDER", "TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET",
-})
-
-
-class ConfigUpdateRequest(BaseModel):
-    keys: Dict[str, str]
-
-    @field_validator("keys")
-    @classmethod
-    def _validate_keys(cls, values: Dict[str, str]) -> Dict[str, str]:
-        unknown = set(values) - _ALLOWED_CONFIG_KEYS
-        if unknown:
-            raise ValueError(f"unknown config keys: {sorted(unknown)}")
-        for name, value in values.items():
-            if len(value) > 4096:
-                raise ValueError(f"config value for {name!r} too long (max 4096)")
-        provider = values.get("TRANSCRIPTION_PROVIDER")
-        if provider not in (None, "", "deepgram", "elevenlabs", "whisper"):
-            raise ValueError("TRANSCRIPTION_PROVIDER must be deepgram, elevenlabs or whisper")
-        model = values.get("GEMINI_MODEL")
-        if model and not GEMINI_MODEL_RE.fullmatch(model):
-            raise ValueError("GEMINI_MODEL is not a valid Gemini model id")
-        return values
-
-
-class ReframeRequest(BaseModel):
-    reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object)$")
-    # Fixed zoom for the letterbox render. 0 (default) = whole frame between
-    # the bars; the dashboard sends a percentage (5-15), normalized downstream.
-    letterbox_zoom: Optional[float] = Field(None, ge=0, le=15)
-
-
 _OVERLAY_MAX_KEYS = 40
 _OVERLAY_MAX_STR = 1000
 _OVERLAY_MAX_ABS_NUM = 100_000
@@ -242,6 +150,154 @@ def _validate_toggles(value):
         if not isinstance(enabled, bool):
             raise ValueError(f"toggle {key!r} must be boolean")
     return value
+
+
+_RECIPE_OVERLAY_KEYS = (
+    "hook_params", "subtitle_params", "logo_params", "grade_params", "banner_params",
+)
+
+
+def _validate_recipe(value):
+    """A Create-time ``last_edit`` seed — same shape/limits as ComposeRequest's
+    fields, reused here so a job's initial per-clip recipe (persisted by the
+    orchestrator when it first writes metadata.json) can't smuggle anything
+    ComposeRequest itself wouldn't already accept."""
+    if value is None:
+        return value
+    if not isinstance(value, dict):
+        raise ValueError("recipe must be an object")
+    unknown = set(value) - {"toggles", *_RECIPE_OVERLAY_KEYS}
+    if unknown:
+        raise ValueError(f"unknown recipe keys: {sorted(unknown)}")
+    _validate_toggles(value.get("toggles"))
+    for key in _RECIPE_OVERLAY_KEYS:
+        if key in value:
+            _validate_overlay_params(value[key])
+    return value
+
+
+class ProcessRequest(BaseModel):
+    url: str = Field(..., max_length=2048)
+    instructions: Optional[str] = Field(None, max_length=MAX_INSTRUCTIONS_LEN)
+    reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object)$")
+    # Fixed zoom for the letterbox render. 0 (default) = whole frame between
+    # the bars; the dashboard sends a percentage (5-15), normalized downstream.
+    letterbox_zoom: Optional[float] = Field(None, ge=0, le=15)
+    # Only meaningful for reframe_mode == "disabled". 'black' (default) leaves
+    # the bars empty; 'blur' fills them with a blurred copy of the frame.
+    letterbox_fill: Optional[str] = Field(None, pattern=r"^(black|blur)$")
+    aspect: Optional[str] = Field(None, pattern=r"^(9:16|1:1|16:9)$")
+    language: Optional[str] = Field(None, max_length=16)
+    no_zoom: Optional[bool] = False
+    skip_analysis: Optional[bool] = False
+    model: Optional[str] = Field(
+        None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
+    )
+    # Soft "Set N" clip-count target (Create tab, not Auto) — a prompt hint,
+    # never a hard cap: Gemini can still return fewer (accepted) or more
+    # (trimmed by viral_score downstream). None/unset = Gemini's own 3-15 range.
+    target_clips: Optional[int] = Field(None, ge=1, le=50)
+    # Create-time recipe seed (toggles + layer params) — persisted verbatim
+    # into every generated clip's `last_edit` when the orchestrator first
+    # writes metadata.json, so a clip nobody has opened in Edit yet still
+    # carries the Create-tab choice durably instead of only in the
+    # browser's local pre-selections cache. Never rendered/composed here —
+    # this only seeds what a later compose/publish falls back to.
+    recipe: Optional[dict] = None
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, value: str) -> str:
+        if value == "https://upload.invalid/local":
+            return value
+        return validate_public_url(value)
+
+    @field_validator("language")
+    @classmethod
+    def _bound_language(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_language(value)
+
+    @field_validator("recipe")
+    @classmethod
+    def _bound_recipe(cls, value: Optional[dict]) -> Optional[dict]:
+        return _validate_recipe(value)
+
+
+class BatchRequest(BaseModel):
+    urls: List[str] = Field(..., min_length=1, max_length=20)
+    instructions: Optional[str] = Field(None, max_length=MAX_INSTRUCTIONS_LEN)
+    reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object)$")
+    # Fixed zoom for the letterbox render. 0 (default) = whole frame between
+    # the bars; the dashboard sends a percentage (5-15), normalized downstream.
+    letterbox_zoom: Optional[float] = Field(None, ge=0, le=15)
+    # Only meaningful for reframe_mode == "disabled". 'black' (default) leaves
+    # the bars empty; 'blur' fills them with a blurred copy of the frame.
+    letterbox_fill: Optional[str] = Field(None, pattern=r"^(black|blur)$")
+    aspect: Optional[str] = Field(None, pattern=r"^(9:16|1:1|16:9)$")
+    language: Optional[str] = Field(None, max_length=16)
+    no_zoom: Optional[bool] = False
+    skip_analysis: Optional[bool] = False
+    model: Optional[str] = Field(
+        None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
+    )
+    target_clips: Optional[int] = Field(None, ge=1, le=50)
+    recipe: Optional[dict] = None
+
+    @field_validator("urls")
+    @classmethod
+    def _validate_urls(cls, values: List[str]) -> List[str]:
+        cleaned = [validate_public_url(url) for url in values if (url or "").strip()]
+        if not cleaned:
+            raise ValueError("at least one non-blank URL is required")
+        return cleaned
+
+    @field_validator("language")
+    @classmethod
+    def _bound_language(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_language(value)
+
+    @field_validator("recipe")
+    @classmethod
+    def _bound_recipe(cls, value: Optional[dict]) -> Optional[dict]:
+        return _validate_recipe(value)
+
+
+_ALLOWED_CONFIG_KEYS = frozenset({
+    "GEMINI_API_KEY", "GEMINI_MODEL", "YOUTUBE_COOKIES", "HF_TOKEN",
+    "HUGGINGFACE_TOKEN", "DEEPGRAM_API_KEY", "ELEVENLABS_API_KEY",
+    "TRANSCRIPTION_PROVIDER", "TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET",
+})
+
+
+class ConfigUpdateRequest(BaseModel):
+    keys: Dict[str, str]
+
+    @field_validator("keys")
+    @classmethod
+    def _validate_keys(cls, values: Dict[str, str]) -> Dict[str, str]:
+        unknown = set(values) - _ALLOWED_CONFIG_KEYS
+        if unknown:
+            raise ValueError(f"unknown config keys: {sorted(unknown)}")
+        for name, value in values.items():
+            if len(value) > 4096:
+                raise ValueError(f"config value for {name!r} too long (max 4096)")
+        provider = values.get("TRANSCRIPTION_PROVIDER")
+        if provider not in (None, "", "deepgram", "elevenlabs", "whisper"):
+            raise ValueError("TRANSCRIPTION_PROVIDER must be deepgram, elevenlabs or whisper")
+        model = values.get("GEMINI_MODEL")
+        if model and not GEMINI_MODEL_RE.fullmatch(model):
+            raise ValueError("GEMINI_MODEL is not a valid Gemini model id")
+        return values
+
+
+class ReframeRequest(BaseModel):
+    reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object)$")
+    # Fixed zoom for the letterbox render. 0 (default) = whole frame between
+    # the bars; the dashboard sends a percentage (5-15), normalized downstream.
+    letterbox_zoom: Optional[float] = Field(None, ge=0, le=15)
+    # Only meaningful for reframe_mode == "disabled". 'black' (default) leaves
+    # the bars empty; 'blur' fills them with a blurred copy of the frame.
+    letterbox_fill: Optional[str] = Field(None, pattern=r"^(black|blur)$")
 
 
 def validate_publish_platforms(value: List[dict]) -> List[dict]:
@@ -398,6 +454,8 @@ class LiveMonitorStartRequest(BaseModel):
     # Fixed zoom on the monitor's letterbox render (percent; 0 = whole frame).
     # Only meaningful when reframe_mode == "disabled".
     letterbox_zoom: float = Field(0, ge=0, le=15)
+    # Bar fill for the same letterbox render: 'black' (default) or 'blur'.
+    letterbox_fill: str = Field("black", pattern=r"^(black|blur)$")
     reframe_mode: str = Field("disabled", pattern=r"^(auto|disabled|subject|object)$")
 
     @field_validator("timezone")

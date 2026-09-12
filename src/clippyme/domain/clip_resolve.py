@@ -66,6 +66,27 @@ def composed_clip_basename(clip_info: dict, clip_index: int) -> str:
     return f"{base}.mp4" if base else f"composed_clip_{clip_index}.mp4"
 
 
+def persist_clip_recipe(resolved: "ResolvedClip", recipe: dict) -> None:
+    """Merge ``recipe`` into this clip's persisted ``last_edit`` blob and save
+    metadata.json — so a clip's edit recipe (toggles + params) survives a
+    reload/restart and is what a later publish recomposes with, instead of
+    existing only in the frontend's in-memory clip state (lost on refresh).
+
+    Shallow-merges into any existing ``last_edit`` rather than overwriting it
+    wholesale: compose (subtitles/hook/logo/grade/banner/smartcut) and
+    reframe (mode/zoom/fill) persist through separate call sites at separate
+    times, and neither should erase what the other already saved.
+    """
+    from clippyme.domain.job_artifacts import save_job_metadata
+
+    last_edit = resolved.clip_info.get("last_edit")
+    if not isinstance(last_edit, dict):
+        last_edit = {}
+    last_edit.update(recipe)
+    resolved.clip_info["last_edit"] = last_edit
+    save_job_metadata(resolved.metadata_path, resolved.metadata)
+
+
 def resolve_clip(job_id: str, clip_index: int, output_root: str,
                  *, require_file: bool = True) -> ResolvedClip:
     """Resolve a job's clip to its metadata + on-disk path.

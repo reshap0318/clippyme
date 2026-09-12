@@ -12,22 +12,32 @@ import os
 from pydantic import BaseModel, Field, field_validator
 
 
+def clip_duration_bounds(default_min: float = 75.0, default_max: float = 180.0) -> tuple[float, float]:
+    """(min, max) clip duration from CLIPPYME_MIN/MAX_CLIP_DURATION, falling
+    back to ``default_min``/``default_max``. Single source of truth for this
+    env-var pair — read once here instead of re-parsed per call site
+    (``pipeline.main`` passes ``cut_ops.DEFAULT_MIN/MAX_CLIP_DURATION`` as the
+    defaults so the two always agree).
+    """
+    try:
+        min_target = float(os.getenv("CLIPPYME_MIN_CLIP_DURATION") or default_min)
+    except ValueError:
+        min_target = default_min
+    try:
+        max_target = float(os.getenv("CLIPPYME_MAX_CLIP_DURATION") or default_max)
+    except ValueError:
+        max_target = default_max
+    return min_target, max_target
+
+
 def _clip_duration_bounds() -> tuple[float, float]:
     """(min, max) duration Gemini's picks are validated against.
 
-    Deliberately a bit wider than CLIPPYME_MIN/MAX_CLIP_DURATION (fallback
-    75/180 — must stay in sync with cut_ops.DEFAULT_MIN/MAX_CLIP_DURATION)
-    so we don't throw away near-misses the Smart Cut post-processing can
-    still rescue.
+    Deliberately a bit wider than the raw CLIPPYME_MIN/MAX_CLIP_DURATION
+    bounds so we don't throw away near-misses the Smart Cut post-processing
+    can still rescue.
     """
-    try:
-        min_target = float(os.getenv("CLIPPYME_MIN_CLIP_DURATION") or 75.0)
-    except ValueError:
-        min_target = 75.0
-    try:
-        max_target = float(os.getenv("CLIPPYME_MAX_CLIP_DURATION") or 180.0)
-    except ValueError:
-        max_target = 180.0
+    min_target, max_target = clip_duration_bounds()
     return max(0.0, min_target - 5.0), max_target + 15.0
 
 
