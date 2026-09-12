@@ -568,6 +568,11 @@ def publish_clip(
 
     # 3. Create post
     media_items = [{"type": "video", "url": public_url}]
+    logger.info(
+        "publish_clip: create_post platforms=%s scheduled_for=%s timezone=%s publish_now=%s tiktok=%s",
+        [p.get("platform") for p in platform_targets], final_scheduled_for, timezone,
+        publish_now, bool(tiktok_settings),
+    )
     response = client.create_post(
         content=effective_content,
         title=title,

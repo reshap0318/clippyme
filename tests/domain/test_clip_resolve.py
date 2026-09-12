@@ -122,6 +122,26 @@ def test_persist_clip_recipe_merges_not_overwrites(tmp_path, job_dir):
     }
 
 
+def test_persist_clip_recipe_stamps_last_compose_wholesale(tmp_path, job_dir):
+    # last_compose is proof-of-render for publish_clip_flow's skip-recompose
+    # check — it must equal exactly what was just composed, not merge with
+    # whatever an earlier call (e.g. reframe) left there.
+    _write_meta(job_dir, "vid_metadata.json", [{"start": 0, "end": 5}])
+    (job_dir / "vid_clip_1.mp4").write_bytes(b"\x00")
+    r1 = resolve_clip(JOB_ID, 0, str(tmp_path))
+    persist_clip_recipe(r1, {"toggles": {"hook": True}, "hook_params": {"text": "Hi"}})
+
+    r2 = resolve_clip(JOB_ID, 0, str(tmp_path))
+    persist_clip_recipe(r2, {"toggles": {"subtitles": True}})
+
+    with open(r2.metadata_path) as f:
+        saved = json.load(f)
+    assert saved["shorts"][0]["last_compose"] == {"toggles": {"subtitles": True}}
+    assert saved["shorts"][0]["last_edit"] == {
+        "toggles": {"subtitles": True}, "hook_params": {"text": "Hi"},
+    }
+
+
 # --- clip_filename_for: task 4b preference chain ---------------------------
 
 def test_clip_filename_for_prefers_clip_filename_key():
