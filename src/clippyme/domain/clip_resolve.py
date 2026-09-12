@@ -67,15 +67,22 @@ def composed_clip_basename(clip_info: dict, clip_index: int) -> str:
 
 
 def persist_clip_recipe(resolved: "ResolvedClip", recipe: dict) -> None:
-    """Merge ``recipe`` into this clip's persisted ``last_edit`` blob and save
-    metadata.json — so a clip's edit recipe (toggles + params) survives a
-    reload/restart and is what a later publish recomposes with, instead of
-    existing only in the frontend's in-memory clip state (lost on refresh).
+    """Merge ``recipe`` into this clip's persisted ``last_edit`` blob, stamp
+    ``last_compose``, and save metadata.json.
 
-    Shallow-merges into any existing ``last_edit`` rather than overwriting it
-    wholesale: compose (subtitles/hook/logo/grade/banner/smartcut) and
-    reframe (mode/zoom/fill) persist through separate call sites at separate
-    times, and neither should erase what the other already saved.
+    Call this ONLY right after a ``compose_layers()`` call has actually
+    succeeded — ``recipe`` must be the exact toggles/params it rendered with.
+
+    ``last_edit`` shallow-merges (compose and reframe persist through
+    separate call sites at separate times, and neither should erase what the
+    other already saved) so a clip's edit recipe survives a reload/restart.
+
+    ``last_compose`` is overwritten wholesale with this same ``recipe`` — it
+    is proof-of-render: unlike ``last_edit`` (also seeded at create time from
+    request defaults, before anything is ever composed), a match against
+    ``last_compose`` means the file at ``composed_clip_basename()`` on disk
+    right now was produced by exactly this recipe. ``publish_clip_flow``
+    compares against it to skip a redundant re-compose.
     """
     from clippyme.domain.job_artifacts import save_job_metadata
 
@@ -84,6 +91,7 @@ def persist_clip_recipe(resolved: "ResolvedClip", recipe: dict) -> None:
         last_edit = {}
     last_edit.update(recipe)
     resolved.clip_info["last_edit"] = last_edit
+    resolved.clip_info["last_compose"] = dict(recipe)
     save_job_metadata(resolved.metadata_path, resolved.metadata)
 
 

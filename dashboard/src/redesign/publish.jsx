@@ -1,7 +1,9 @@
 // ClippyMe redesign — PublishModal: real concurrent publish to Zernio.
-// Every selected clip is published in parallel (Promise.allSettled) — the fix
-// for the old sequential stall — each row showing live queued→uploading→
-// live/error status. Per-clip compose_first honours the clip's toggles.
+// Clips publish in parallel by default — the fix for the old sequential
+// stall — each row showing live queued→uploading→live/error status.
+// Per-clip compose_first honours the clip's toggles. When auto-scheduling,
+// same-day (same clipsPerDay group) clips are serialized to avoid racing
+// SmartScheduler's occupancy check; different days still run concurrently.
 import { useState, useEffect, useRef } from "react";
 import { Icon, Social, Btn, Switch, PlatPill, PLATFORMS } from "./primitives";
 import { LazyVideo } from "./LazyVideo";
@@ -261,32 +263,64 @@ export function PublishModal({
       init[c._idx] = { state: "uploading" };
     });
     setProgress(init);
-    const results = await Promise.allSettled(
-      clips.map(async (clip, batchPos) => {
-        const idx = clip._idx;
-        // Resolve to the backend's ABSOLUTE `shorts` position for the actual
-        // publish call — `idx` (array position) stays the key into local
-        // clipStates/progress, which are unaffected by a manual-publish gap.
-        const apiIdx = clip._apiIdx ?? idx;
-        try {
-          await publishClip(jobId, apiIdx, buildBody(clip, idx, batchPos));
-          setProgress((p) => ({ ...p, [idx]: { state: "done" } }));
-          onPublished?.(idx);
-          return true;
-        } catch (e) {
-          // Surface the real reason (e.g. a Zernio daily-limit 429) instead of a
-          // bare "failed", so the user knows to retry that platform tomorrow.
-          setProgress((p) => ({
-            ...p,
-            [idx]: { state: "error", error: e?.message || "Publish failed" },
-          }));
-          return false;
-        }
-      }),
-    );
-    const ok = results.filter(
-      (r) => r.status === "fulfilled" && r.value,
-    ).length;
+
+    const publishOne = async (clip, batchPos) => {
+      const idx = clip._idx;
+      // Resolve to the backend's ABSOLUTE `shorts` position for the actual
+      // publish call — `idx` (array position) stays the key into local
+      // clipStates/progress, which are unaffected by a manual-publish gap.
+      const apiIdx = clip._apiIdx ?? idx;
+      try {
+        await publishClip(jobId, apiIdx, buildBody(clip, idx, batchPos));
+        setProgress((p) => ({ ...p, [idx]: { state: "done" } }));
+        onPublished?.(idx);
+        return true;
+      } catch (e) {
+        // Surface the real reason (e.g. a Zernio daily-limit 429) instead of a
+        // bare "failed", so the user knows to retry that platform tomorrow.
+        setProgress((p) => ({
+          ...p,
+          [idx]: { state: "error", error: e?.message || "Publish failed" },
+        }));
+        return false;
+      }
+    };
+
+    let results;
+    if (schedule) {
+      // SmartScheduler (auto mode) only learns a slot is taken once that
+      // clip's Zernio "create post" call has returned — firing every
+      // same-day clip in parallel races the occupancy check (each sees an
+      // empty day) and can bunch them into near-identical times. Clips in
+      // the same clipsPerDay group share a start_date, so serialize inside
+      // a group; different groups (different days) can't collide and still
+      // run concurrently.
+      const groups = new Map();
+      clips.forEach((clip, batchPos) => {
+        const g = Math.floor(batchPos / clipsPerDay);
+        if (!groups.has(g)) groups.set(g, []);
+        groups.get(g).push([clip, batchPos]);
+      });
+      results = (
+        await Promise.all(
+          [...groups.values()].map(async (group) => {
+            const out = [];
+            for (const [clip, batchPos] of group) {
+              out.push(await publishOne(clip, batchPos));
+            }
+            return out;
+          }),
+        )
+      ).flat();
+    } else {
+      // "now" / manual publish has no shared occupancy to race — keep it
+      // fully parallel.
+      results = await Promise.all(
+        clips.map((clip, batchPos) => publishOne(clip, batchPos)),
+      );
+    }
+
+    const ok = results.filter(Boolean).length;
     const fail = clips.length - ok;
     setTimeout(() => {
       if (!mountedRef.current) return;

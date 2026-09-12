@@ -33,13 +33,22 @@ async def publish_clip_flow(*, job_id: str, clip_index: int,
     if not api_key:
         raise ValidationError("Zernio API key not configured")
 
-    from clippyme.domain.clip_resolve import composed_clip_basename
+    from clippyme.domain.clip_resolve import composed_clip_basename, persist_clip_recipe
     job_dir = resolved.job_dir
     base_clip = resolved.clip_path
     upload_path = base_clip
     composed_path = os.path.join(job_dir, composed_clip_basename(resolved.clip_info, clip_index))
 
     toggles = req.get("toggles")
+    recipe = {
+        "toggles": toggles,
+        "hook_params": req.get("hook_params") or {},
+        "subtitle_params": req.get("subtitle_params") or {},
+        "logo_params": req.get("logo_params") or {},
+        "grade_params": req.get("grade_params") or {},
+        "banner_params": req.get("banner_params") or {},
+        "drop_ranges": req.get("drop_ranges") or [],
+    }
     logger.info(
         "publish_clip_flow: job=%s clip=%d compose_first=%s toggles=%s has_hook_params=%s has_sub_params=%s",
         job_id, clip_index, req.get("compose_first"),
@@ -48,7 +57,18 @@ async def publish_clip_flow(*, job_id: str, clip_index: int,
         bool(req.get("subtitle_params")),
     )
 
-    if req.get("compose_first") and toggles:
+    # `last_compose` is stamped only right after a real compose_layers() run
+    # (persist_clip_recipe, called from here and from /api/compose) — a match
+    # means composed_path on disk was already rendered with this exact recipe,
+    # so re-composing on every publish click would just burn CPU for the same
+    # bytes. `last_edit` is NOT usable for this: it's also seeded at create
+    # time with defaults nothing ever rendered.
+    last_compose = resolved.clip_info.get("last_compose")
+    reuse_existing_compose = os.path.exists(composed_path) and last_compose == recipe
+
+    if reuse_existing_compose:
+        upload_path = composed_path
+    elif req.get("compose_first") and toggles:
         try:
             composed_filename = await compose_layers(
                 base_clip=base_clip,
@@ -57,11 +77,11 @@ async def publish_clip_flow(*, job_id: str, clip_index: int,
                 metadata=resolved.metadata,
                 clip_info=resolved.clip_info,
                 toggles=toggles,
-                hook_params=req.get("hook_params") or {},
-                subtitle_params=req.get("subtitle_params") or {},
-                logo_params=req.get("logo_params") or {},
-                grade_params=req.get("grade_params") or {},
-                banner_params=req.get("banner_params") or {},
+                hook_params=recipe["hook_params"],
+                subtitle_params=recipe["subtitle_params"],
+                logo_params=recipe["logo_params"],
+                grade_params=recipe["grade_params"],
+                banner_params=recipe["banner_params"],
                 drop_ranges=req.get("drop_ranges"),
             )
             upload_path = os.path.join(job_dir, composed_filename)
@@ -70,6 +90,17 @@ async def publish_clip_flow(*, job_id: str, clip_index: int,
         except Exception as e:
             logger.error("publish: compose_layers failed for %s/%d: %s", job_id, clip_index, e)
             raise ClippyMeError(f"Compose before publish failed: {e}", status_code=500)
+        else:
+            # Best-effort, same as /api/compose: the compose already
+            # succeeded, so a metadata-write hiccup here must not fail the
+            # publish — it only means the next publish recomposes again.
+            try:
+                await asyncio.to_thread(persist_clip_recipe, resolved, recipe)
+            except Exception:
+                logger.warning(
+                    "publish: failed to persist compose recipe for %s/%d", job_id, clip_index,
+                    exc_info=True,
+                )
     elif os.path.exists(composed_path):
         upload_path = composed_path
 
